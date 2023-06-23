@@ -1,0 +1,12 @@
+[package]
+name = "moqt"
+version = "0.0.0"
+authors = ["Y.L. <yl@quic.ly>"]
+edition = "2021"
+description = "Media over QUIC Transport"
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/moqt"
+homepage = "https://quic.ly"
+repository = "https://github.com/quic-ly/moqt"
+
+[dependencies]
