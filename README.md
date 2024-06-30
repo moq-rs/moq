@@ -1,5 +1,5 @@
 <h1 align="center">
- <a href="https://moq.rs"><img src="https://raw.githubusercontent.com/moq-rs/moq-rs.github.io/master/res/moq.png" alt="moq.rs"></a>
+ <a href="https://moq.rs"><img src="https://raw.githubusercontent.com/moq-rs/moq-rs.github.io/master/res/moq-rs.png" alt="moq.rs"></a>
  <br>
 </h1>
 <p align="center">
