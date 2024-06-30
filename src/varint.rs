@@ -180,3 +180,31 @@ impl Encodable for VarInt {
         }
     }
 }
+
+impl Encodable for u64 {
+    /// Encode a varint to the given writer.
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let var = VarInt::try_from(*self)?;
+        var.encode(w)
+    }
+}
+
+impl Decodable for u64 {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        VarInt::decode(r).map(|v| v.into_inner())
+    }
+}
+
+impl Encodable for usize {
+    /// Encode a varint to the given writer.
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let var = VarInt::try_from(*self)?;
+        var.encode(w)
+    }
+}
+
+impl Decodable for usize {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        VarInt::decode(r).map(|v| v.into_inner() as usize)
+    }
+}

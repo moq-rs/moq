@@ -1,3 +1,4 @@
+use std::string::FromUtf8Error;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -11,4 +12,9 @@ pub enum Error {
     ErrUnexpectedEnd,
     #[error("malformed varint")]
     ErrMalformedVarInt,
+    #[error("buffer is too short")]
+    ErrBufferTooShort,
+
+    #[error("invalid string")]
+    InvalidString(#[from] FromUtf8Error),
 }
