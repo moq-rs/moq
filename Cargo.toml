@@ -10,3 +10,5 @@ homepage = "https://moq.rs"
 repository = "https://github.com/moq-rs/moqt"
 
 [dependencies]
+bytes = "1.6.0"
+thiserror = "1.0.61"

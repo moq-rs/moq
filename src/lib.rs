@@ -1,14 +1,8 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#![warn(rust_2018_idioms)]
+#![allow(dead_code)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod codable;
+mod error;
+mod varint;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use error::{Error, Result};
