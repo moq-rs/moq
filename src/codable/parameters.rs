@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::io::Cursor;
 
 #[derive(Default, Debug, Clone)]
-pub struct Params(pub HashMap<u64, Vec<u8>>);
+pub struct Parameters(pub HashMap<u64, Vec<u8>>);
 
-impl Decodable for Params {
-    fn decode<R: Buf>(mut r: &mut R) -> Result<Self> {
+impl Decodable for Parameters {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
         let mut params = HashMap::new();
 
         // I hate this encoding so much; let me encode my role and get on with my life.
@@ -19,7 +19,7 @@ impl Decodable for Params {
                 return Err(Error::ErrDupliateParameter);
             }
 
-            let size = usize::decode(&mut r)?;
+            let size = usize::decode(r)?;
             if r.remaining() < size {
                 return Err(Error::ErrBufferTooShort);
             }
@@ -32,11 +32,11 @@ impl Decodable for Params {
             params.insert(kind, buf);
         }
 
-        Ok(Params(params))
+        Ok(Parameters(params))
     }
 }
 
-impl Encodable for Params {
+impl Encodable for Parameters {
     fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.0.len().encode(w)?;
 
@@ -54,7 +54,7 @@ impl Encodable for Params {
     }
 }
 
-impl Params {
+impl Parameters {
     pub fn new() -> Self {
         Self::default()
     }
@@ -90,7 +90,7 @@ mod test {
 
     #[test]
     fn test_params() -> Result<()> {
-        let mut params = Params::new();
+        let mut params = Parameters::new();
 
         params.insert(1, "I am string".to_string())?;
         params.insert(2, 100u64)?;

@@ -7,4 +7,5 @@ mod message;
 mod object;
 mod session;
 
+pub use codable::{parameters::Parameters, varint::VarInt, Decodable, Encodable};
 pub use error::{Error, Result};
