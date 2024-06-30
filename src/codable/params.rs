@@ -86,7 +86,7 @@ impl Params {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::varint::VarInt;
+    use crate::codable::varint::VarInt;
 
     #[test]
     fn test_params() -> Result<()> {

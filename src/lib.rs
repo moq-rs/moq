@@ -3,8 +3,8 @@
 
 mod codable;
 mod error;
-mod params;
-mod string;
-mod varint;
+mod message;
+mod object;
+mod session;
 
 pub use error::{Error, Result};
