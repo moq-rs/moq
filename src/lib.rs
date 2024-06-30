@@ -3,6 +3,7 @@
 
 mod codable;
 mod error;
+mod params;
 mod string;
 mod varint;
 

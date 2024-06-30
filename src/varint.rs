@@ -164,15 +164,27 @@ impl Encodable for VarInt {
     fn encode<B: BufMut>(&self, w: &mut B) -> Result<usize> {
         let x = self.0;
         if x < 2u64.pow(6) {
+            if w.remaining_mut() < 1 {
+                return Err(Error::ErrBufferTooShort);
+            }
             w.put_u8(x as u8);
             Ok(1)
         } else if x < 2u64.pow(14) {
+            if w.remaining_mut() < 2 {
+                return Err(Error::ErrBufferTooShort);
+            }
             w.put_u16(0b01 << 14 | x as u16);
             Ok(2)
         } else if x < 2u64.pow(30) {
+            if w.remaining_mut() < 4 {
+                return Err(Error::ErrBufferTooShort);
+            }
             w.put_u32(0b10 << 30 | x as u32);
             Ok(4)
         } else if x < 2u64.pow(62) {
+            if w.remaining_mut() < 8 {
+                return Err(Error::ErrBufferTooShort);
+            }
             w.put_u64(0b11 << 62 | x);
             Ok(8)
         } else {

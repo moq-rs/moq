@@ -14,6 +14,8 @@ pub enum Error {
     ErrMalformedVarInt,
     #[error("buffer is too short")]
     ErrBufferTooShort,
+    #[error("duplicate parameter")]
+    ErrDupliateParameter,
 
     #[error("invalid string")]
     InvalidString(#[from] FromUtf8Error),
