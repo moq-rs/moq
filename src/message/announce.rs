@@ -1,6 +1,7 @@
 use crate::{Decodable, Encodable, Parameters, Result};
 use bytes::{Buf, BufMut};
 
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Announce {
     pub track_namespace: String,
     pub parameters: Parameters,

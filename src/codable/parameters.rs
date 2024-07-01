@@ -4,7 +4,7 @@ use bytes::{Buf, BufMut};
 use std::collections::HashMap;
 use std::io::Cursor;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Parameters(pub HashMap<u64, Vec<u8>>);
 
 impl Decodable for Parameters {
@@ -16,7 +16,7 @@ impl Decodable for Parameters {
         for _ in 0..count {
             let kind = u64::decode(r)?;
             if params.contains_key(&kind) {
-                return Err(Error::ErrDupliateParameter);
+                return Err(Error::ErrDuplicateParameter);
             }
 
             let size = usize::decode(r)?;
@@ -61,7 +61,7 @@ impl Parameters {
 
     pub fn insert<P: Encodable>(&mut self, kind: u64, p: P) -> Result<()> {
         if self.contains(kind) {
-            return Err(Error::ErrDupliateParameter);
+            return Err(Error::ErrDuplicateParameter);
         }
         let mut value = Vec::new();
         p.encode(&mut value)?;

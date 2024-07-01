@@ -15,7 +15,11 @@ pub enum Error {
     #[error("buffer is too short")]
     ErrBufferTooShort,
     #[error("duplicate parameter")]
-    ErrDupliateParameter,
+    ErrDuplicateParameter,
+    #[error("invalid message type: {0}")]
+    ErrInvalidMessageType(u64),
+    #[error("invalid filter type: {0}")]
+    ErrInvalidFilterType(u64),
 
     #[error("invalid string")]
     InvalidString(#[from] FromUtf8Error),
