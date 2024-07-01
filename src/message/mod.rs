@@ -5,11 +5,14 @@ mod announce;
 mod announce_cancel;
 mod announce_error;
 mod announce_ok;
+mod go_away;
 mod subscribe;
 mod subscribe_done;
 mod subscribe_error;
 mod subscribe_ok;
 mod subscribe_update;
+mod track_status;
+mod track_status_request;
 mod unannounce;
 mod unsubscribe;
 
