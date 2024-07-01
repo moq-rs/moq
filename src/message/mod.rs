@@ -5,7 +5,9 @@ mod announce;
 mod announce_cancel;
 mod announce_error;
 mod announce_ok;
+mod client_setup;
 mod go_away;
+mod server_setup;
 mod subscribe;
 mod subscribe_done;
 mod subscribe_error;
@@ -153,5 +155,78 @@ impl Encodable for FilterType {
                 Ok(l)
             }
         }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+#[repr(u32)]
+pub enum Version {
+    #[default]
+    Draft00 = 0xff000000,
+    Draft01 = 0xff000001,
+    Draft02 = 0xff000002,
+    Draft03 = 0xff000003,
+    Draft04 = 0xff000004,
+}
+
+impl TryFrom<u64> for Version {
+    type Error = Error;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0xff000000 => Ok(Version::Draft00),
+            0xff000001 => Ok(Version::Draft01),
+            0xff000002 => Ok(Version::Draft02),
+            0xff000003 => Ok(Version::Draft03),
+            0xff000004 => Ok(Version::Draft04),
+            _ => Err(Error::ErrUnsupportedVersion(value)),
+        }
+    }
+}
+
+impl Decodable for Version {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        let v = u64::decode(r)?;
+        v.try_into()
+    }
+}
+
+impl Encodable for Version {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        (*self as u64).encode(w)
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Role {
+    #[default]
+    Publisher = 0x1,
+    Subscriber = 0x2,
+    PubSub = 0x3,
+}
+
+impl TryFrom<u64> for Role {
+    type Error = Error;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0x1 => Ok(Role::Publisher),
+            0x2 => Ok(Role::Subscriber),
+            0x3 => Ok(Role::PubSub),
+            _ => Err(Error::ErrInvalidRole(value)),
+        }
+    }
+}
+
+impl Decodable for Role {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        let v = u64::decode(r)?;
+        v.try_into()
+    }
+}
+
+impl Encodable for Role {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        (*self as u64).encode(w)
     }
 }

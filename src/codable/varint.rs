@@ -213,7 +213,7 @@ impl Decodable for bool {
         match b {
             0 => Ok(false),
             1 => Ok(true),
-            _ => Err(Error::ErrInvalidValue),
+            _ => Err(Error::ErrInvalidBooleanValue(b)),
         }
     }
 }

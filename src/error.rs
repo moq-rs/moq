@@ -16,12 +16,18 @@ pub enum Error {
     ErrBufferTooShort,
     #[error("duplicate parameter")]
     ErrDuplicateParameter,
+    #[error("missing parameter")]
+    ErrMissingParameter,
     #[error("invalid message type: {0}")]
     ErrInvalidMessageType(u64),
     #[error("invalid filter type: {0}")]
     ErrInvalidFilterType(u64),
-    #[error("invalid value")]
-    ErrInvalidValue,
+    #[error("invalid boolean value: {0}")]
+    ErrInvalidBooleanValue(u8),
+    #[error("unsupported version: {0}")]
+    ErrUnsupportedVersion(u64),
+    #[error("invalid role: {0}")]
+    ErrInvalidRole(u64),
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),
