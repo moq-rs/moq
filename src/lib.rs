@@ -4,7 +4,6 @@
 mod codable;
 mod error;
 mod message;
-mod object;
 mod session;
 
 pub use codable::{parameters::Parameters, varint::VarInt, Decodable, Encodable};

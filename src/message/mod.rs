@@ -7,6 +7,7 @@ mod announce_error;
 mod announce_ok;
 mod client_setup;
 mod go_away;
+mod object;
 mod server_setup;
 mod subscribe;
 mod subscribe_done;
