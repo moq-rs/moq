@@ -8,6 +8,7 @@ mod announce_ok;
 mod subscribe;
 mod subscribe_done;
 mod subscribe_error;
+mod subscribe_ok;
 mod subscribe_update;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
