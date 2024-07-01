@@ -1,5 +1,5 @@
 use crate::message::FilterType;
-use crate::{Decodable, Encodable, Parameters};
+use crate::{Decodable, Encodable, Parameters, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -16,7 +16,7 @@ pub struct Subscribe {
 }
 
 impl Decodable for Subscribe {
-    fn decode<R: Buf>(r: &mut R) -> crate::Result<Self> {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
         let subscribe_id = u64::decode(r)?;
 
         let track_alias = u64::decode(r)?;
@@ -42,7 +42,7 @@ impl Decodable for Subscribe {
 }
 
 impl Encodable for Subscribe {
-    fn encode<W: BufMut>(&self, w: &mut W) -> crate::Result<usize> {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.subscribe_id.encode(w)?;
 
         l += self.track_alias.encode(w)?;

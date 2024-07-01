@@ -10,6 +10,8 @@ mod subscribe_done;
 mod subscribe_error;
 mod subscribe_ok;
 mod subscribe_update;
+mod unannounce;
+mod unsubscribe;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum MessageType {
