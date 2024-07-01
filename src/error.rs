@@ -20,7 +20,9 @@ pub enum Error {
     ErrInvalidMessageType(u64),
     #[error("invalid filter type: {0}")]
     ErrInvalidFilterType(u64),
+    #[error("invalid value")]
+    ErrInvalidValue,
 
     #[error("invalid string")]
-    InvalidString(#[from] FromUtf8Error),
+    ErrInvalidString(#[from] FromUtf8Error),
 }

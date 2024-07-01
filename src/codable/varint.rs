@@ -193,6 +193,31 @@ impl Encodable for VarInt {
     }
 }
 
+impl Encodable for bool {
+    /// Encode a varint to the given writer.
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        if !w.has_remaining_mut() {
+            return Err(Error::ErrBufferTooShort);
+        }
+        w.put_u8(*self as u8);
+        Ok(1)
+    }
+}
+
+impl Decodable for bool {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        if !r.has_remaining() {
+            return Err(Error::ErrBufferTooShort);
+        }
+        let b = r.get_u8();
+        match b {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(Error::ErrInvalidValue),
+        }
+    }
+}
+
 impl Encodable for u64 {
     /// Encode a varint to the given writer.
     fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {

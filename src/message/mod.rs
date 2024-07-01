@@ -6,6 +6,8 @@ mod announce_cancel;
 mod announce_error;
 mod announce_ok;
 mod subscribe;
+mod subscribe_done;
+mod subscribe_update;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum MessageType {
