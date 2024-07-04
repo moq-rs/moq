@@ -1,14 +1,12 @@
 [package]
-name = "moqt"
-version = "0.0.1"
+name = "moqs"
+version = "0.0.0"
 authors = ["yngrtc <y@ngr.tc>"]
 edition = "2021"
-description = "Media over QUIC - Transport"
+description = "Media over QUIC - Subscribe"
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/moqt"
+documentation = "https://docs.rs/moqs"
 homepage = "https://moq.rs"
 repository = "https://github.com/moq-rs/moq"
 
 [dependencies]
-bytes = "1.6.0"
-thiserror = "1.0.61"
