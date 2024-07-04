@@ -4,8 +4,13 @@ use bytes::{Buf, BufMut};
 use std::collections::HashMap;
 use std::io::Cursor;
 
+pub type ParameterKey = u64;
+pub const PARAMETER_KEY_ROLE: ParameterKey = 0;
+pub const PARAMETER_KEY_PATH: ParameterKey = 1;
+pub const PARAMETER_KEY_AUTHORIZATION: ParameterKey = 2;
+
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct Parameters(pub HashMap<u64, Vec<u8>>);
+pub struct Parameters(pub HashMap<ParameterKey, Vec<u8>>);
 
 impl Decodable for Parameters {
     fn decode<R: Buf>(r: &mut R) -> Result<Self> {
@@ -59,22 +64,22 @@ impl Parameters {
         Self::default()
     }
 
-    pub fn insert<P: Encodable>(&mut self, kind: u64, p: P) -> Result<()> {
-        if self.contains(kind) {
+    pub fn insert<P: Encodable>(&mut self, key: ParameterKey, p: P) -> Result<()> {
+        if self.contains(key) {
             return Err(Error::ErrDuplicateParameter);
         }
         let mut value = Vec::new();
         p.encode(&mut value)?;
-        self.0.insert(kind, value);
+        self.0.insert(key, value);
         Ok(())
     }
 
-    pub fn contains(&self, kind: u64) -> bool {
-        self.0.contains_key(&kind)
+    pub fn contains(&self, key: ParameterKey) -> bool {
+        self.0.contains_key(&key)
     }
 
-    pub fn remove<P: Decodable>(&mut self, kind: u64) -> Option<P> {
-        if let Some(value) = self.0.remove(&kind) {
+    pub fn remove<P: Decodable>(&mut self, key: ParameterKey) -> Option<P> {
+        if let Some(value) = self.0.remove(&key) {
             let mut cursor = Cursor::new(value);
             P::decode(&mut cursor).ok()
         } else {
