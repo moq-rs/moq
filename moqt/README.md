@@ -20,6 +20,6 @@
  </a>
 </p>
 <p align="center">
- Media over QUIC
+ Media over QUIC Transport
 </p>
 

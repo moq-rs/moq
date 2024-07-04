@@ -1,14 +1,8 @@
-[package]
-name = "moqt"
-version = "0.0.1"
-authors = ["yngrtc <y@ngr.tc>"]
-edition = "2021"
-description = "Media over QUIC Transport"
-license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/moqt"
-homepage = "https://moq.rs"
-repository = "https://github.com/moq-rs/moqt"
+[workspace]
+members = [
+    "moqt",
+]
+resolver = "2"
 
-[dependencies]
-bytes = "1.6.0"
-thiserror = "1.0.61"
+[profile.dev]
+opt-level = 0
