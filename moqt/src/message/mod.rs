@@ -24,6 +24,7 @@ pub enum MessageType {
     #[default]
     ObjectStream = 0x0,
     ObjectDatagram = 0x1,
+    SubscribeUpdate = 0x2,
     Subscribe = 0x3,
     SubscribeOk = 0x4,
     SubscribeError = 0x5,
