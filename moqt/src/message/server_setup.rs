@@ -1,4 +1,4 @@
-use crate::codable::parameters::PARAMETER_KEY_ROLE;
+use crate::codable::parameters::ParameterKey;
 use crate::message::{Role, Version};
 use crate::{Decodable, Encodable, Error, Parameters, Result};
 use bytes::{Buf, BufMut};
@@ -16,7 +16,7 @@ impl Decodable for ServerSetup {
 
         let mut parameters = Parameters::decode(r)?;
         let role: Role = parameters
-            .remove(PARAMETER_KEY_ROLE)
+            .remove(ParameterKey::Role)
             .ok_or(Error::ErrMissingParameter)?;
 
         Ok(Self {
@@ -32,7 +32,7 @@ impl Encodable for ServerSetup {
         let mut l = self.supported_version.encode(w)?;
 
         let mut parameters = self.parameters.clone();
-        parameters.insert(PARAMETER_KEY_ROLE, self.role)?;
+        parameters.insert(ParameterKey::Role, self.role)?;
         l += parameters.encode(w)?;
         Ok(l)
     }

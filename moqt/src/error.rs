@@ -6,6 +6,17 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    #[error("unauthorized")]
+    ErrUnauthorized,
+    #[error("protocol violation")]
+    ErrProtocolViolation,
+    #[error("duplicate track alias")]
+    ErrDuplicateTrackAlias,
+    #[error("parameter length mismatch")]
+    ErrParameterLengthMismatch,
+    #[error("go away timeout")]
+    ErrGoawayTimeout,
+
     #[error("value too large for varint encoding")]
     ErrVarIntBoundsExceeded,
     #[error("unexpected buffer end")]
@@ -18,6 +29,8 @@ pub enum Error {
     ErrDuplicateParameter,
     #[error("missing parameter")]
     ErrMissingParameter,
+    #[error("unsupported parameter: {0}")]
+    ErrUnsupportedParameter(u64),
     #[error("invalid message type: {0}")]
     ErrInvalidMessageType(u64),
     #[error("invalid filter type: {0}")]

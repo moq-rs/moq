@@ -4,13 +4,29 @@ use bytes::{Buf, BufMut};
 use std::collections::HashMap;
 use std::io::Cursor;
 
-pub type ParameterKey = u64;
-pub const PARAMETER_KEY_ROLE: ParameterKey = 0;
-pub const PARAMETER_KEY_PATH: ParameterKey = 1;
-pub const PARAMETER_KEY_AUTHORIZATION: ParameterKey = 2;
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ParameterKey {
+    #[default]
+    Role = 0,
+    Path = 1,
+    AuthorizationInfo = 2,
+}
+
+impl TryFrom<u64> for ParameterKey {
+    type Error = Error;
+
+    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0x1 => Ok(ParameterKey::Role),
+            0x2 => Ok(ParameterKey::Path),
+            0x3 => Ok(ParameterKey::AuthorizationInfo),
+            _ => Err(Error::ErrUnsupportedParameter(value)),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct Parameters(pub HashMap<ParameterKey, Vec<u8>>);
+pub struct Parameters(pub HashMap<u64, Vec<u8>>);
 
 impl Decodable for Parameters {
     fn decode<R: Buf>(r: &mut R) -> Result<Self> {
@@ -70,16 +86,16 @@ impl Parameters {
         }
         let mut value = Vec::new();
         p.encode(&mut value)?;
-        self.0.insert(key, value);
+        self.0.insert(key as u64, value);
         Ok(())
     }
 
     pub fn contains(&self, key: ParameterKey) -> bool {
-        self.0.contains_key(&key)
+        self.0.contains_key(&(key as u64))
     }
 
     pub fn remove<P: Decodable>(&mut self, key: ParameterKey) -> Option<P> {
-        if let Some(value) = self.0.remove(&key) {
+        if let Some(value) = self.0.remove(&(key as u64)) {
             let mut cursor = Cursor::new(value);
             P::decode(&mut cursor).ok()
         } else {
@@ -91,35 +107,34 @@ impl Parameters {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::codable::varint::VarInt;
+    use crate::message::Role;
 
     #[test]
     fn test_params() -> Result<()> {
         let mut params = Parameters::new();
 
-        params.insert(1, "I am string".to_string())?;
-        params.insert(2, 100u64)?;
-        params.insert(3, 101usize)?;
-        params.insert(4, VarInt::from_u64(2u64.pow(5))?)?;
-        params.insert(5, VarInt::from_u64(2u64.pow(13))?)?;
-        params.insert(6, VarInt::from_u64(2u64.pow(28))?)?;
-        params.insert(7, VarInt::from_u64(2u64.pow(61))?)?;
+        params.insert(ParameterKey::Role, Role::PubSub)?;
+        params.insert(ParameterKey::Path, "/moq/1".to_string())?;
 
-        let result = params.insert(1, "I am another string".to_string());
+        assert!(!params.contains(ParameterKey::AuthorizationInfo));
+        params.insert(ParameterKey::AuthorizationInfo, "password".to_string())?;
+
+        let result = params.insert(ParameterKey::Path, "/moq/2".to_string());
         assert!(result.is_err());
 
-        assert!(params.contains(1));
-        assert!(params.contains(2));
-        assert!(!params.contains(10));
+        assert!(params.contains(ParameterKey::Role));
+        assert!(params.contains(ParameterKey::Path));
+        assert!(params.contains(ParameterKey::AuthorizationInfo));
 
-        assert_eq!(Some("I am string".to_string()), params.remove(1));
-        assert_eq!(Some(100u64), params.remove(2));
-        assert_eq!(Some(101usize), params.remove(3));
-        assert_eq!(Some(2u64.pow(5)), params.remove(4));
-        assert_eq!(Some(2u64.pow(13)), params.remove(5));
-        assert_eq!(Some(2u64.pow(28)), params.remove(6));
-        assert_eq!(Some(2u64.pow(61)), params.remove(7));
-
+        assert_eq!(Some(Role::PubSub), params.remove(ParameterKey::Role));
+        assert_eq!(
+            Some("/moq/1".to_string()),
+            params.remove(ParameterKey::Path)
+        );
+        assert_eq!(
+            Some("password".to_string()),
+            params.remove(ParameterKey::AuthorizationInfo)
+        );
         Ok(())
     }
 }

@@ -19,6 +19,11 @@ mod track_status_request;
 mod unannounce;
 mod unsubscribe;
 
+/// The maximum length of a message, excluding and OBJECT payload.
+/// This prevents DoS attack via forcing the parser to buffer a large
+/// message (OBJECT payloads are not buffered by the parser)
+pub const MAX_MESSSAGE_HEADER_SIZE: usize = 2048;
+
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum MessageType {
     #[default]
