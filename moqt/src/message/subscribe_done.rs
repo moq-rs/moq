@@ -1,4 +1,4 @@
-use crate::message::GroupObjectPair;
+use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
@@ -9,7 +9,7 @@ pub struct SubscribeDone {
     pub status_code: u64,
     pub reason_phrase: String,
 
-    pub final_group_object: Option<GroupObjectPair>,
+    pub final_group_object: Option<FullSequence>,
 }
 
 impl Decodable for SubscribeDone {
@@ -20,7 +20,7 @@ impl Decodable for SubscribeDone {
         let reason_phrase = String::decode(r)?;
 
         let group_object_pair = if bool::decode(r)? {
-            Some(GroupObjectPair::decode(r)?)
+            Some(FullSequence::decode(r)?)
         } else {
             None
         };

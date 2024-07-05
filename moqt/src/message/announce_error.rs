@@ -1,6 +1,13 @@
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum AnnounceErrorCode {
+    #[default]
+    InternalError = 0,
+    AnnounceNotSupported = 1,
+}
+
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct AnnounceError {
     pub track_namespace: String,

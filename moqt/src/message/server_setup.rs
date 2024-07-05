@@ -7,7 +7,6 @@ use bytes::{Buf, BufMut};
 pub struct ServerSetup {
     pub supported_version: Version,
     pub role: Role,
-    pub parameters: Parameters,
 }
 
 impl Decodable for ServerSetup {
@@ -22,7 +21,6 @@ impl Decodable for ServerSetup {
         Ok(Self {
             supported_version,
             role,
-            parameters,
         })
     }
 }
@@ -31,7 +29,7 @@ impl Encodable for ServerSetup {
     fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.supported_version.encode(w)?;
 
-        let mut parameters = self.parameters.clone();
+        let mut parameters = Parameters::new();
         parameters.insert(ParameterKey::Role, self.role)?;
         l += parameters.encode(w)?;
         Ok(l)

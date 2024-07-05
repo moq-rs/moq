@@ -1,4 +1,4 @@
-use crate::message::GroupObjectPair;
+use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
@@ -8,7 +8,7 @@ pub struct SubscribeOk {
 
     pub expires: u64,
 
-    pub largest_group_object: Option<GroupObjectPair>,
+    pub largest_group_object: Option<FullSequence>,
 }
 
 impl Decodable for SubscribeOk {
@@ -18,7 +18,7 @@ impl Decodable for SubscribeOk {
         let expires = u64::decode(r)?;
 
         let group_object_pair = if bool::decode(r)? {
-            Some(GroupObjectPair::decode(r)?)
+            Some(FullSequence::decode(r)?)
         } else {
             None
         };

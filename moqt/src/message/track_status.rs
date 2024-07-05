@@ -1,4 +1,4 @@
-use crate::message::GroupObjectPair;
+use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
@@ -7,7 +7,7 @@ pub struct TrackStatus {
     pub track_namespace: String,
     pub track_name: String,
     pub status_code: u64,
-    pub last_group_object: GroupObjectPair,
+    pub last_group_object: FullSequence,
 }
 
 impl Decodable for TrackStatus {
@@ -15,7 +15,7 @@ impl Decodable for TrackStatus {
         let track_namespace = String::decode(r)?;
         let track_name = String::decode(r)?;
         let status_code = u64::decode(r)?;
-        let last_group_object = GroupObjectPair::decode(r)?;
+        let last_group_object = FullSequence::decode(r)?;
         Ok(Self {
             track_namespace,
             track_name,

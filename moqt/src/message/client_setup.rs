@@ -7,7 +7,7 @@ use bytes::{Buf, BufMut};
 pub struct ClientSetup {
     pub supported_versions: Vec<Version>,
     pub role: Role,
-    pub parameters: Parameters,
+    pub path: Option<String>,
 }
 
 impl Decodable for ClientSetup {
@@ -22,11 +22,12 @@ impl Decodable for ClientSetup {
         let role: Role = parameters
             .remove(ParameterKey::Role)
             .ok_or(Error::ErrMissingParameter)?;
+        let path: Option<String> = parameters.remove(ParameterKey::Path);
 
         Ok(Self {
             supported_versions,
             role,
-            parameters,
+            path,
         })
     }
 }
@@ -38,9 +39,13 @@ impl Encodable for ClientSetup {
             l += supported_version.encode(w)?;
         }
 
-        let mut parameters = self.parameters.clone();
+        let mut parameters = Parameters::new();
         parameters.insert(ParameterKey::Role, self.role)?;
+        if let Some(path) = self.path.as_ref() {
+            parameters.insert(ParameterKey::Path, path.to_string())?;
+        }
         l += parameters.encode(w)?;
+
         Ok(l)
     }
 }

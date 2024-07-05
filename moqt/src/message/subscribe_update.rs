@@ -1,6 +1,6 @@
 //TODO: no MessageType defined for SubscribeUpdate in https://www.ietf.org/archive/id/draft-ietf-moq-transport-04.html#name-messages
 
-use crate::message::GroupObjectPair;
+use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Parameters};
 use bytes::{Buf, BufMut};
 
@@ -8,8 +8,8 @@ use bytes::{Buf, BufMut};
 pub struct SubscribeUpdate {
     pub subscribe_id: u64,
 
-    pub start_group_object: GroupObjectPair,
-    pub end_group_object: GroupObjectPair,
+    pub start_group_object: FullSequence,
+    pub end_group_object: FullSequence,
 
     pub parameters: Parameters,
 }
@@ -18,8 +18,8 @@ impl Decodable for SubscribeUpdate {
     fn decode<R: Buf>(r: &mut R) -> crate::Result<Self> {
         let subscribe_id = u64::decode(r)?;
 
-        let start_group_object = GroupObjectPair::decode(r)?;
-        let end_group_object = GroupObjectPair::decode(r)?;
+        let start_group_object = FullSequence::decode(r)?;
+        let end_group_object = FullSequence::decode(r)?;
 
         let parameters = Parameters::decode(r)?;
 

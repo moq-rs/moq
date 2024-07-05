@@ -91,13 +91,38 @@ impl Encodable for MessageType {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
-pub struct GroupObjectPair {
+#[derive(Default, Debug, Clone, Eq, PartialEq, Hash)]
+pub struct FullTrackName {
+    pub track_namespace: String,
+    pub track_name: String,
+}
+
+impl Decodable for FullTrackName {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        let track_namespace = String::decode(r)?;
+        let track_name = String::decode(r)?;
+        Ok(Self {
+            track_namespace,
+            track_name,
+        })
+    }
+}
+
+impl Encodable for FullTrackName {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.track_namespace.encode(w)?;
+        l += self.track_name.encode(w)?;
+        Ok(l)
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct FullSequence {
     pub group_id: u64,
     pub object_id: u64,
 }
 
-impl Decodable for GroupObjectPair {
+impl Decodable for FullSequence {
     fn decode<R: Buf>(r: &mut R) -> Result<Self> {
         let group_id = u64::decode(r)?;
         let object_id = u64::decode(r)?;
@@ -108,7 +133,7 @@ impl Decodable for GroupObjectPair {
     }
 }
 
-impl Encodable for GroupObjectPair {
+impl Encodable for FullSequence {
     fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.group_id.encode(w)?;
         l += self.object_id.encode(w)?;
@@ -120,9 +145,9 @@ impl Encodable for GroupObjectPair {
 pub enum FilterType {
     #[default]
     LatestGroup, // = 0x1,
-    LatestObject,                                    // = 0x2,
-    AbsoluteStart(GroupObjectPair),                  // = 0x3,
-    AbsoluteRange(GroupObjectPair, GroupObjectPair), // = 0x4,
+    LatestObject,                              // = 0x2,
+    AbsoluteStart(FullSequence),               // = 0x3,
+    AbsoluteRange(FullSequence, FullSequence), // = 0x4,
 }
 
 impl Decodable for FilterType {
@@ -132,12 +157,12 @@ impl Decodable for FilterType {
             0x1 => Ok(FilterType::LatestGroup),
             0x2 => Ok(FilterType::LatestObject),
             0x3 => {
-                let start = GroupObjectPair::decode(r)?;
+                let start = FullSequence::decode(r)?;
                 Ok(FilterType::AbsoluteStart(start))
             }
             0x4 => {
-                let start = GroupObjectPair::decode(r)?;
-                let end = GroupObjectPair::decode(r)?;
+                let start = FullSequence::decode(r)?;
+                let end = FullSequence::decode(r)?;
                 Ok(FilterType::AbsoluteRange(start, end))
             }
             _ => Err(Error::ErrInvalidFilterType(v)),
