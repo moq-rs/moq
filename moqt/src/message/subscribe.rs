@@ -1,3 +1,4 @@
+use crate::codable::parameters::ParameterKey;
 use crate::message::FilterType;
 use crate::{Decodable, Encodable, Parameters, Result};
 use bytes::{Buf, BufMut};
@@ -12,7 +13,7 @@ pub struct Subscribe {
 
     pub filter_type: FilterType,
 
-    pub parameters: Parameters,
+    pub authorization_info: Option<String>,
 }
 
 impl Decodable for Subscribe {
@@ -25,7 +26,8 @@ impl Decodable for Subscribe {
 
         let filter_type = FilterType::decode(r)?;
 
-        let parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::decode(r)?;
+        let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
         Ok(Self {
             subscribe_id,
@@ -36,7 +38,7 @@ impl Decodable for Subscribe {
 
             filter_type,
 
-            parameters,
+            authorization_info,
         })
     }
 }
@@ -51,7 +53,14 @@ impl Encodable for Subscribe {
 
         l += self.filter_type.encode(w)?;
 
-        l += self.parameters.encode(w)?;
+        if let Some(authorization_info) = self.authorization_info.as_ref() {
+            let mut parameters = Parameters::new();
+            parameters.insert(
+                ParameterKey::AuthorizationInfo,
+                authorization_info.to_string(),
+            )?;
+            l += parameters.encode(w)?;
+        }
 
         Ok(l)
     }

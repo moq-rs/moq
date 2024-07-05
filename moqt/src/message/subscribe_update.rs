@@ -1,5 +1,6 @@
 //TODO: no MessageType defined for SubscribeUpdate in https://www.ietf.org/archive/id/draft-ietf-moq-transport-04.html#name-messages
 
+use crate::codable::parameters::ParameterKey;
 use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Parameters};
 use bytes::{Buf, BufMut};
@@ -11,7 +12,7 @@ pub struct SubscribeUpdate {
     pub start_group_object: FullSequence,
     pub end_group_object: FullSequence,
 
-    pub parameters: Parameters,
+    pub authorization_info: Option<String>,
 }
 
 impl Decodable for SubscribeUpdate {
@@ -21,7 +22,8 @@ impl Decodable for SubscribeUpdate {
         let start_group_object = FullSequence::decode(r)?;
         let end_group_object = FullSequence::decode(r)?;
 
-        let parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::decode(r)?;
+        let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
         Ok(Self {
             subscribe_id,
@@ -29,7 +31,7 @@ impl Decodable for SubscribeUpdate {
             start_group_object,
             end_group_object,
 
-            parameters,
+            authorization_info,
         })
     }
 }
@@ -41,7 +43,14 @@ impl Encodable for SubscribeUpdate {
         l += self.start_group_object.encode(w)?;
         l += self.end_group_object.encode(w)?;
 
-        l += self.parameters.encode(w)?;
+        if let Some(authorization_info) = self.authorization_info.as_ref() {
+            let mut parameters = Parameters::new();
+            parameters.insert(
+                ParameterKey::AuthorizationInfo,
+                authorization_info.to_string(),
+            )?;
+            l += parameters.encode(w)?;
+        }
 
         Ok(l)
     }

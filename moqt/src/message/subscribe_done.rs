@@ -2,6 +2,18 @@ use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum SubscribeDoneCode {
+    #[default]
+    Unsubscribed = 0x0,
+    InternalError = 0x1,
+    Unauthorized = 0x2,
+    TrackEnded = 0x3,
+    SubscriptionEnded = 0x4,
+    GoingAway = 0x5,
+    Expired = 0x6,
+}
+
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct SubscribeDone {
     pub subscribe_id: u64,

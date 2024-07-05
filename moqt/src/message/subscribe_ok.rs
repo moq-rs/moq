@@ -17,7 +17,7 @@ impl Decodable for SubscribeOk {
 
         let expires = u64::decode(r)?;
 
-        let group_object_pair = if bool::decode(r)? {
+        let largest_group_object = if bool::decode(r)? {
             Some(FullSequence::decode(r)?)
         } else {
             None
@@ -28,7 +28,7 @@ impl Decodable for SubscribeOk {
 
             expires,
 
-            largest_group_object: group_object_pair,
+            largest_group_object,
         })
     }
 }
@@ -39,8 +39,8 @@ impl Encodable for SubscribeOk {
 
         l += self.expires.encode(w)?;
 
-        l += if let Some(group_object_pair) = self.largest_group_object.as_ref() {
-            true.encode(w)? + group_object_pair.encode(w)?
+        l += if let Some(largest_group_object) = self.largest_group_object.as_ref() {
+            true.encode(w)? + largest_group_object.encode(w)?
         } else {
             false.encode(w)?
         };

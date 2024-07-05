@@ -2,6 +2,16 @@ use crate::message::FullSequence;
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TrackStatusCode {
+    #[default]
+    InProgress = 0x0,
+    DoesNotExist = 0x1,
+    NotYetBegun = 0x2,
+    Finished = 0x3,
+    StatusNotAvailable = 0x4,
+}
+
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct TrackStatus {
     pub track_namespace: String,

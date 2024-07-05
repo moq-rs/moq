@@ -1,6 +1,14 @@
 use crate::{Decodable, Encodable, Result};
 use bytes::{Buf, BufMut};
 
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum SubscribeErrorCode {
+    #[default]
+    InternalError = 0,
+    InvalidRange = 1,
+    RetryTrackAlias = 2,
+}
+
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct SubscribeError {
     pub subscribe_id: u64,
