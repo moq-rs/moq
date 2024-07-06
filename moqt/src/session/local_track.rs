@@ -1,8 +1,24 @@
 use crate::message::object::{ObjectForwardingPreference, ObjectStatus};
 use crate::message::{FullSequence, FullTrackName};
 use crate::session::subscribe_window::{SubscribeWindow, SubscribeWindows};
+use crate::Result;
 use log::error;
 use std::collections::HashMap;
+
+pub type PublishPastObjectsCallback = fn();
+pub trait LocalTrackVisitor {
+    /// Requests that application re-publish objects from {start_group,
+    /// start_object} to the latest object. If the return value is ok, the
+    /// subscribe is valid and the application will deliver the object and
+    /// the session will send SUBSCRIBE_OK. If the return is error, the value
+    /// is the error message (the session will send SUBSCRIBE_ERROR). Via this
+    /// API, the application decides if a partially fulfillable
+    /// SUBSCRIBE results in an error or not.
+    fn on_subscribe_for_past(
+        &self,
+        window: &SubscribeWindow,
+    ) -> Result<Option<PublishPastObjectsCallback>>;
+}
 
 /// A track to which the peer might subscribe.
 pub struct LocalTrack {

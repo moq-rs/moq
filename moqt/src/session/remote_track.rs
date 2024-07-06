@@ -1,5 +1,22 @@
 use crate::message::object::ObjectForwardingPreference;
 use crate::message::FullTrackName;
+use bytes::Bytes;
+
+pub trait RemoteTrackVisitor {
+    fn on_reply(&self, full_track_name: &FullTrackName, error_reason_phrase: Option<String>);
+
+    #[allow(clippy::too_many_arguments)]
+    fn on_object_fragment(
+        full_track_name: &FullTrackName,
+        group_id: u64,
+        object_id: u64,
+        object_send_order: u64,
+        object_status: u64,
+        forwarding_preference: ObjectForwardingPreference,
+        object_payload: Bytes,
+        end_of_message: bool,
+    );
+}
 
 /// A track on the peer to which the session has subscribed.
 pub struct RemoteTrack {
