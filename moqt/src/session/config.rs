@@ -8,7 +8,7 @@ pub enum Perspective {
 pub struct Config {
     pub version: Version,
     pub perspective: Perspective,
-    pub use_webtrans: bool,
+    pub use_web_transport: bool,
     pub path: String,
     pub deliver_partial_objects: bool,
 }

@@ -10,12 +10,6 @@ pub struct DatagramHeader {
     pub object_send_order: u64,
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct DatagramObject {
-    pub object_status: u64,
-    pub object_payload: Bytes,
-}
-
 impl Decodable for DatagramHeader {
     fn decode<R: Buf>(r: &mut R) -> Result<Self> {
         Ok(Self {
@@ -35,6 +29,29 @@ impl Encodable for DatagramHeader {
         l += self.group_id.encode(w)?;
         l += self.object_id.encode(w)?;
         l += self.object_send_order.encode(w)?;
+        Ok(l)
+    }
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
+pub struct DatagramObject {
+    pub object_status: u64,
+    pub object_payload: Bytes,
+}
+
+impl Decodable for DatagramObject {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        Ok(Self {
+            object_status: u64::decode(r)?,
+            object_payload: Bytes::decode(r)?,
+        })
+    }
+}
+
+impl Encodable for DatagramObject {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.object_status.encode(w)?;
+        l += self.object_payload.encode(w)?;
         Ok(l)
     }
 }

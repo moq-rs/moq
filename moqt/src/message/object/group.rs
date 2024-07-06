@@ -9,14 +9,6 @@ pub struct GroupHeader {
     pub object_send_order: u64,
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct GroupObject {
-    pub object_id: u64,
-    pub object_payload_length: u64,
-    pub object_status: Option<u64>,
-    pub object_payload: Bytes,
-}
-
 impl Decodable for GroupHeader {
     fn decode<R: Buf>(r: &mut R) -> Result<Self> {
         Ok(Self {
@@ -34,6 +26,45 @@ impl Encodable for GroupHeader {
         l += self.track_alias.encode(w)?;
         l += self.group_id.encode(w)?;
         l += self.object_send_order.encode(w)?;
+        Ok(l)
+    }
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
+pub struct GroupObject {
+    pub object_id: u64,
+    pub object_payload_length: u64,
+    pub object_status: Option<u64>,
+    pub object_payload: Bytes,
+}
+
+impl Decodable for GroupObject {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        let object_id = u64::decode(r)?;
+        let object_payload_length = u64::decode(r)?;
+        let object_status = if object_payload_length == 0 {
+            Some(u64::decode(r)?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            object_id,
+            object_payload_length,
+            object_status,
+            object_payload: Bytes::decode(r)?,
+        })
+    }
+}
+
+impl Encodable for GroupObject {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.object_id.encode(w)?;
+        l += self.object_payload_length.encode(w)?;
+        if let Some(object_status) = self.object_status.as_ref() {
+            l += object_status.encode(w)?;
+        }
+        l += self.object_payload.encode(w)?;
         Ok(l)
     }
 }
