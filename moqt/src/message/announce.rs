@@ -1,5 +1,5 @@
-use crate::codable::parameters::ParameterKey;
-use crate::{Decodable, Encodable, Parameters, Result};
+use crate::serde::parameters::ParameterKey;
+use crate::{Deserializer, Serializer, Parameters, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -8,11 +8,11 @@ pub struct Announce {
     pub authorization_info: Option<String>,
 }
 
-impl Decodable for Announce {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::decode(r)?;
+impl Deserializer for Announce {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let track_namespace = String::deserialize(r)?;
 
-        let mut parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::deserialize(r)?;
         let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
         Ok(Self {
@@ -22,9 +22,9 @@ impl Decodable for Announce {
     }
 }
 
-impl Encodable for Announce {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.track_namespace.encode(w)?;
+impl Serializer for Announce {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.track_namespace.serialize(w)?;
 
         if let Some(authorization_info) = self.authorization_info.as_ref() {
             let mut parameters = Parameters::new();
@@ -32,7 +32,7 @@ impl Encodable for Announce {
                 ParameterKey::AuthorizationInfo,
                 authorization_info.to_string(),
             )?;
-            l += parameters.encode(w)?;
+            l += parameters.serialize(w)?;
         }
 
         Ok(l)

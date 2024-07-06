@@ -1,6 +1,6 @@
-use crate::codable::parameters::ParameterKey;
+use crate::serde::parameters::ParameterKey;
 use crate::message::{Role, Version};
-use crate::{Decodable, Encodable, Error, Parameters, Result};
+use crate::{Deserializer, Serializer, Error, Parameters, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -9,11 +9,11 @@ pub struct ServerSetup {
     pub role: Role,
 }
 
-impl Decodable for ServerSetup {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let supported_version = Version::decode(r)?;
+impl Deserializer for ServerSetup {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let supported_version = Version::deserialize(r)?;
 
-        let mut parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::deserialize(r)?;
         let role: Role = parameters
             .remove(ParameterKey::Role)
             .ok_or(Error::ErrMissingParameter)?;
@@ -25,13 +25,13 @@ impl Decodable for ServerSetup {
     }
 }
 
-impl Encodable for ServerSetup {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.supported_version.encode(w)?;
+impl Serializer for ServerSetup {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.supported_version.serialize(w)?;
 
         let mut parameters = Parameters::new();
         parameters.insert(ParameterKey::Role, self.role)?;
-        l += parameters.encode(w)?;
+        l += parameters.serialize(w)?;
         Ok(l)
     }
 }

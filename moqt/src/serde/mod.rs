@@ -4,20 +4,20 @@ use bytes::{Buf, BufMut, Bytes};
 pub mod parameters;
 pub mod varint;
 
-pub trait Decodable {
-    fn decode<B>(r: &mut B) -> Result<Self>
+pub trait Deserializer {
+    fn deserialize<B>(r: &mut B) -> Result<Self>
     where
         Self: Sized,
         B: Buf;
 }
 
-pub trait Encodable {
-    fn encode<B: BufMut>(&self, w: &mut B) -> Result<usize>;
+pub trait Serializer {
+    fn serialize<B: BufMut>(&self, w: &mut B) -> Result<usize>;
 }
 
-impl Encodable for bool {
+impl Serializer for bool {
     /// Encode a varint to the given writer.
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         if !w.has_remaining_mut() {
             return Err(Error::ErrBufferTooShort);
         }
@@ -26,8 +26,8 @@ impl Encodable for bool {
     }
 }
 
-impl Decodable for bool {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+impl Deserializer for bool {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
         if !r.has_remaining() {
             return Err(Error::ErrBufferTooShort);
         }
@@ -40,9 +40,9 @@ impl Decodable for bool {
     }
 }
 
-impl Encodable for Bytes {
+impl Serializer for Bytes {
     /// Encode a varint to the given writer.
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         if !w.has_remaining_mut() {
             return Err(Error::ErrBufferTooShort);
         }
@@ -51,15 +51,15 @@ impl Encodable for Bytes {
     }
 }
 
-impl Decodable for Bytes {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+impl Deserializer for Bytes {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
         Ok(r.copy_to_bytes(r.remaining()))
     }
 }
 
-impl Decodable for String {
-    fn decode<B: Buf>(r: &mut B) -> Result<Self> {
-        let size = usize::decode(r)?;
+impl Deserializer for String {
+    fn deserialize<B: Buf>(r: &mut B) -> Result<Self> {
+        let size = usize::deserialize(r)?;
         if r.remaining() < size {
             return Err(Error::ErrBufferTooShort);
         }
@@ -72,9 +72,9 @@ impl Decodable for String {
     }
 }
 
-impl Encodable for String {
-    fn encode<B: BufMut>(&self, w: &mut B) -> Result<usize> {
-        let l = self.len().encode(w)?;
+impl Serializer for String {
+    fn serialize<B: BufMut>(&self, w: &mut B) -> Result<usize> {
+        let l = self.len().serialize(w)?;
         if w.remaining_mut() < self.len() {
             return Err(Error::ErrBufferTooShort);
         }

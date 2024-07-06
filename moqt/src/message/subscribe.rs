@@ -1,6 +1,6 @@
-use crate::codable::parameters::ParameterKey;
+use crate::serde::parameters::ParameterKey;
 use crate::message::FilterType;
-use crate::{Decodable, Encodable, Parameters, Result};
+use crate::{Deserializer, Serializer, Parameters, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -16,17 +16,17 @@ pub struct Subscribe {
     pub authorization_info: Option<String>,
 }
 
-impl Decodable for Subscribe {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::decode(r)?;
+impl Deserializer for Subscribe {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let subscribe_id = u64::deserialize(r)?;
 
-        let track_alias = u64::decode(r)?;
-        let track_namespace = String::decode(r)?;
-        let track_name = String::decode(r)?;
+        let track_alias = u64::deserialize(r)?;
+        let track_namespace = String::deserialize(r)?;
+        let track_name = String::deserialize(r)?;
 
-        let filter_type = FilterType::decode(r)?;
+        let filter_type = FilterType::deserialize(r)?;
 
-        let mut parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::deserialize(r)?;
         let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
         Ok(Self {
@@ -43,15 +43,15 @@ impl Decodable for Subscribe {
     }
 }
 
-impl Encodable for Subscribe {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.subscribe_id.encode(w)?;
+impl Serializer for Subscribe {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.subscribe_id.serialize(w)?;
 
-        l += self.track_alias.encode(w)?;
-        l += self.track_namespace.encode(w)?;
-        l += self.track_name.encode(w)?;
+        l += self.track_alias.serialize(w)?;
+        l += self.track_namespace.serialize(w)?;
+        l += self.track_name.serialize(w)?;
 
-        l += self.filter_type.encode(w)?;
+        l += self.filter_type.serialize(w)?;
 
         if let Some(authorization_info) = self.authorization_info.as_ref() {
             let mut parameters = Parameters::new();
@@ -59,7 +59,7 @@ impl Encodable for Subscribe {
                 ParameterKey::AuthorizationInfo,
                 authorization_info.to_string(),
             )?;
-            l += parameters.encode(w)?;
+            l += parameters.serialize(w)?;
         }
 
         Ok(l)

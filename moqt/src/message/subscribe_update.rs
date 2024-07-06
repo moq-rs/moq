@@ -1,8 +1,8 @@
 //TODO: no MessageType defined for SubscribeUpdate in https://www.ietf.org/archive/id/draft-ietf-moq-transport-04.html#name-messages
 
-use crate::codable::parameters::ParameterKey;
+use crate::serde::parameters::ParameterKey;
 use crate::message::FullSequence;
-use crate::{Decodable, Encodable, Parameters};
+use crate::{Deserializer, Serializer, Parameters};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -15,14 +15,14 @@ pub struct SubscribeUpdate {
     pub authorization_info: Option<String>,
 }
 
-impl Decodable for SubscribeUpdate {
-    fn decode<R: Buf>(r: &mut R) -> crate::Result<Self> {
-        let subscribe_id = u64::decode(r)?;
+impl Deserializer for SubscribeUpdate {
+    fn deserialize<R: Buf>(r: &mut R) -> crate::Result<Self> {
+        let subscribe_id = u64::deserialize(r)?;
 
-        let start_group_object = FullSequence::decode(r)?;
-        let end_group_object = FullSequence::decode(r)?;
+        let start_group_object = FullSequence::deserialize(r)?;
+        let end_group_object = FullSequence::deserialize(r)?;
 
-        let mut parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::deserialize(r)?;
         let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
         Ok(Self {
@@ -36,12 +36,12 @@ impl Decodable for SubscribeUpdate {
     }
 }
 
-impl Encodable for SubscribeUpdate {
-    fn encode<W: BufMut>(&self, w: &mut W) -> crate::Result<usize> {
-        let mut l = self.subscribe_id.encode(w)?;
+impl Serializer for SubscribeUpdate {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> crate::Result<usize> {
+        let mut l = self.subscribe_id.serialize(w)?;
 
-        l += self.start_group_object.encode(w)?;
-        l += self.end_group_object.encode(w)?;
+        l += self.start_group_object.serialize(w)?;
+        l += self.end_group_object.serialize(w)?;
 
         if let Some(authorization_info) = self.authorization_info.as_ref() {
             let mut parameters = Parameters::new();
@@ -49,7 +49,7 @@ impl Encodable for SubscribeUpdate {
                 ParameterKey::AuthorizationInfo,
                 authorization_info.to_string(),
             )?;
-            l += parameters.encode(w)?;
+            l += parameters.serialize(w)?;
         }
 
         Ok(l)

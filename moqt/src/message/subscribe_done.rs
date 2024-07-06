@@ -1,5 +1,5 @@
 use crate::message::FullSequence;
-use crate::{Decodable, Encodable, Result};
+use crate::{Deserializer, Serializer, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
@@ -24,15 +24,15 @@ pub struct SubscribeDone {
     pub final_group_object: Option<FullSequence>,
 }
 
-impl Decodable for SubscribeDone {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::decode(r)?;
+impl Deserializer for SubscribeDone {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let subscribe_id = u64::deserialize(r)?;
 
-        let status_code = u64::decode(r)?;
-        let reason_phrase = String::decode(r)?;
+        let status_code = u64::deserialize(r)?;
+        let reason_phrase = String::deserialize(r)?;
 
-        let group_object_pair = if bool::decode(r)? {
-            Some(FullSequence::decode(r)?)
+        let group_object_pair = if bool::deserialize(r)? {
+            Some(FullSequence::deserialize(r)?)
         } else {
             None
         };
@@ -48,17 +48,17 @@ impl Decodable for SubscribeDone {
     }
 }
 
-impl Encodable for SubscribeDone {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.subscribe_id.encode(w)?;
+impl Serializer for SubscribeDone {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.subscribe_id.serialize(w)?;
 
-        l += self.status_code.encode(w)?;
-        l += self.reason_phrase.encode(w)?;
+        l += self.status_code.serialize(w)?;
+        l += self.reason_phrase.serialize(w)?;
 
         l += if let Some(group_object_pair) = self.final_group_object.as_ref() {
-            true.encode(w)? + group_object_pair.encode(w)?
+            true.serialize(w)? + group_object_pair.serialize(w)?
         } else {
-            false.encode(w)?
+            false.serialize(w)?
         };
 
         Ok(l)

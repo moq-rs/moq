@@ -1,4 +1,4 @@
-use crate::codable::{Decodable, Encodable};
+use crate::serde::{Deserializer, Serializer};
 use crate::{Error, Result};
 use bytes::{Buf, BufMut};
 use std::collections::HashMap;
@@ -28,19 +28,19 @@ impl TryFrom<u64> for ParameterKey {
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Parameters(pub HashMap<u64, Vec<u8>>);
 
-impl Decodable for Parameters {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+impl Deserializer for Parameters {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
         let mut params = HashMap::new();
 
         // I hate this encoding so much; let me encode my role and get on with my life.
-        let count = u64::decode(r)?;
+        let count = u64::deserialize(r)?;
         for _ in 0..count {
-            let kind = u64::decode(r)?;
+            let kind = u64::deserialize(r)?;
             if params.contains_key(&kind) {
                 return Err(Error::ErrDuplicateParameter);
             }
 
-            let size = usize::decode(r)?;
+            let size = usize::deserialize(r)?;
             if r.remaining() < size {
                 return Err(Error::ErrBufferTooShort);
             }
@@ -57,13 +57,13 @@ impl Decodable for Parameters {
     }
 }
 
-impl Encodable for Parameters {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.0.len().encode(w)?;
+impl Serializer for Parameters {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.0.len().serialize(w)?;
 
         for (kind, value) in self.0.iter() {
-            l += kind.encode(w)?;
-            l += value.len().encode(w)?;
+            l += kind.serialize(w)?;
+            l += value.len().serialize(w)?;
             if w.remaining_mut() < value.len() {
                 return Err(Error::ErrBufferTooShort);
             }
@@ -80,12 +80,12 @@ impl Parameters {
         Self::default()
     }
 
-    pub fn insert<P: Encodable>(&mut self, key: ParameterKey, p: P) -> Result<()> {
+    pub fn insert<P: Serializer>(&mut self, key: ParameterKey, p: P) -> Result<()> {
         if self.contains(key) {
             return Err(Error::ErrDuplicateParameter);
         }
         let mut value = Vec::new();
-        p.encode(&mut value)?;
+        p.serialize(&mut value)?;
         self.0.insert(key as u64, value);
         Ok(())
     }
@@ -94,10 +94,10 @@ impl Parameters {
         self.0.contains_key(&(key as u64))
     }
 
-    pub fn remove<P: Decodable>(&mut self, key: ParameterKey) -> Option<P> {
+    pub fn remove<P: Deserializer>(&mut self, key: ParameterKey) -> Option<P> {
         if let Some(value) = self.0.remove(&(key as u64)) {
             let mut cursor = Cursor::new(value);
-            P::decode(&mut cursor).ok()
+            P::deserialize(&mut cursor).ok()
         } else {
             None
         }

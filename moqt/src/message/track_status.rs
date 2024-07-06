@@ -1,5 +1,5 @@
 use crate::message::FullSequence;
-use crate::{Decodable, Encodable, Result};
+use crate::{Deserializer, Serializer, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
@@ -20,12 +20,12 @@ pub struct TrackStatus {
     pub last_group_object: FullSequence,
 }
 
-impl Decodable for TrackStatus {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::decode(r)?;
-        let track_name = String::decode(r)?;
-        let status_code = u64::decode(r)?;
-        let last_group_object = FullSequence::decode(r)?;
+impl Deserializer for TrackStatus {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let track_namespace = String::deserialize(r)?;
+        let track_name = String::deserialize(r)?;
+        let status_code = u64::deserialize(r)?;
+        let last_group_object = FullSequence::deserialize(r)?;
         Ok(Self {
             track_namespace,
             track_name,
@@ -35,12 +35,12 @@ impl Decodable for TrackStatus {
     }
 }
 
-impl Encodable for TrackStatus {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.track_namespace.encode(w)?;
-        l += self.track_name.encode(w)?;
-        l += self.status_code.encode(w)?;
-        l += self.last_group_object.encode(w)?;
+impl Serializer for TrackStatus {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.track_namespace.serialize(w)?;
+        l += self.track_name.serialize(w)?;
+        l += self.status_code.serialize(w)?;
+        l += self.last_group_object.serialize(w)?;
         Ok(l)
     }
 }

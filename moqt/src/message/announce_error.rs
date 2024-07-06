@@ -1,4 +1,4 @@
-use crate::{Decodable, Encodable, Result};
+use crate::{Deserializer, Serializer, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
@@ -15,11 +15,11 @@ pub struct AnnounceError {
     pub reason_phrase: String,
 }
 
-impl Decodable for AnnounceError {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::decode(r)?;
-        let error_code = u64::decode(r)?;
-        let reason_phrase = String::decode(r)?;
+impl Deserializer for AnnounceError {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let track_namespace = String::deserialize(r)?;
+        let error_code = u64::deserialize(r)?;
+        let reason_phrase = String::deserialize(r)?;
         Ok(Self {
             track_namespace,
             error_code,
@@ -28,11 +28,11 @@ impl Decodable for AnnounceError {
     }
 }
 
-impl Encodable for AnnounceError {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.track_namespace.encode(w)?;
-        l += self.error_code.encode(w)?;
-        l += self.reason_phrase.encode(w)?;
+impl Serializer for AnnounceError {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.track_namespace.serialize(w)?;
+        l += self.error_code.serialize(w)?;
+        l += self.reason_phrase.serialize(w)?;
         Ok(l)
     }
 }

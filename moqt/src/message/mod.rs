@@ -18,7 +18,7 @@ use crate::message::track_status::TrackStatus;
 use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
-use crate::{Decodable, Encodable, Error, Result};
+use crate::{Deserializer, Serializer, Error, Result};
 use bytes::{Buf, BufMut};
 
 pub mod announce;
@@ -99,16 +99,16 @@ impl TryFrom<u64> for MessageType {
     }
 }
 
-impl Decodable for MessageType {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::decode(r)?;
+impl Deserializer for MessageType {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let v = u64::deserialize(r)?;
         v.try_into()
     }
 }
 
-impl Encodable for MessageType {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        (*self as u64).encode(w)
+impl Serializer for MessageType {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        (*self as u64).serialize(w)
     }
 }
 
@@ -118,10 +118,10 @@ pub struct FullTrackName {
     pub track_name: String,
 }
 
-impl Decodable for FullTrackName {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::decode(r)?;
-        let track_name = String::decode(r)?;
+impl Deserializer for FullTrackName {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let track_namespace = String::deserialize(r)?;
+        let track_name = String::deserialize(r)?;
         Ok(Self {
             track_namespace,
             track_name,
@@ -129,10 +129,10 @@ impl Decodable for FullTrackName {
     }
 }
 
-impl Encodable for FullTrackName {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.track_namespace.encode(w)?;
-        l += self.track_name.encode(w)?;
+impl Serializer for FullTrackName {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.track_namespace.serialize(w)?;
+        l += self.track_name.serialize(w)?;
         Ok(l)
     }
 }
@@ -143,10 +143,10 @@ pub struct FullSequence {
     pub object_id: u64,
 }
 
-impl Decodable for FullSequence {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let group_id = u64::decode(r)?;
-        let object_id = u64::decode(r)?;
+impl Deserializer for FullSequence {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let group_id = u64::deserialize(r)?;
+        let object_id = u64::deserialize(r)?;
         Ok(Self {
             group_id,
             object_id,
@@ -154,10 +154,10 @@ impl Decodable for FullSequence {
     }
 }
 
-impl Encodable for FullSequence {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.group_id.encode(w)?;
-        l += self.object_id.encode(w)?;
+impl Serializer for FullSequence {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.group_id.serialize(w)?;
+        l += self.object_id.serialize(w)?;
         Ok(l)
     }
 }
@@ -171,19 +171,19 @@ pub enum FilterType {
     AbsoluteRange(FullSequence, FullSequence), // = 0x4,
 }
 
-impl Decodable for FilterType {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::decode(r)?;
+impl Deserializer for FilterType {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let v = u64::deserialize(r)?;
         match v {
             0x1 => Ok(FilterType::LatestGroup),
             0x2 => Ok(FilterType::LatestObject),
             0x3 => {
-                let start = FullSequence::decode(r)?;
+                let start = FullSequence::deserialize(r)?;
                 Ok(FilterType::AbsoluteStart(start))
             }
             0x4 => {
-                let start = FullSequence::decode(r)?;
-                let end = FullSequence::decode(r)?;
+                let start = FullSequence::deserialize(r)?;
+                let end = FullSequence::deserialize(r)?;
                 Ok(FilterType::AbsoluteRange(start, end))
             }
             _ => Err(Error::ErrInvalidFilterType(v)),
@@ -191,20 +191,20 @@ impl Decodable for FilterType {
     }
 }
 
-impl Encodable for FilterType {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+impl Serializer for FilterType {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         match self {
-            FilterType::LatestGroup => 0x1u64.encode(w),
-            FilterType::LatestObject => 0x2u64.encode(w),
+            FilterType::LatestGroup => 0x1u64.serialize(w),
+            FilterType::LatestObject => 0x2u64.serialize(w),
             FilterType::AbsoluteStart(start) => {
-                let mut l = 0x3u64.encode(w)?;
-                l += start.encode(w)?;
+                let mut l = 0x3u64.serialize(w)?;
+                l += start.serialize(w)?;
                 Ok(l)
             }
             FilterType::AbsoluteRange(start, end) => {
-                let mut l = 0x4u64.encode(w)?;
-                l += start.encode(w)?;
-                l += end.encode(w)?;
+                let mut l = 0x4u64.serialize(w)?;
+                l += start.serialize(w)?;
+                l += end.serialize(w)?;
                 Ok(l)
             }
         }
@@ -237,16 +237,16 @@ impl TryFrom<u64> for Version {
     }
 }
 
-impl Decodable for Version {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::decode(r)?;
+impl Deserializer for Version {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let v = u64::deserialize(r)?;
         v.try_into()
     }
 }
 
-impl Encodable for Version {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        (*self as u64).encode(w)
+impl Serializer for Version {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        (*self as u64).serialize(w)
     }
 }
 
@@ -271,16 +271,16 @@ impl TryFrom<u64> for Role {
     }
 }
 
-impl Decodable for Role {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::decode(r)?;
+impl Deserializer for Role {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let v = u64::deserialize(r)?;
         v.try_into()
     }
 }
 
-impl Encodable for Role {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        (*self as u64).encode(w)
+impl Serializer for Role {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        (*self as u64).serialize(w)
     }
 }
 
@@ -308,143 +308,143 @@ pub enum Message {
     StreamHeaderGroup(GroupHeader),
 }
 
-impl Decodable for Message {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let message_type = MessageType::decode(r)?;
+impl Deserializer for Message {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let message_type = MessageType::deserialize(r)?;
         match message_type {
-            MessageType::ObjectStream => Ok(Message::ObjectStream(StreamHeader::decode(r)?)),
-            MessageType::ObjectDatagram => Ok(Message::ObjectDatagram(DatagramHeader::decode(r)?)),
+            MessageType::ObjectStream => Ok(Message::ObjectStream(StreamHeader::deserialize(r)?)),
+            MessageType::ObjectDatagram => Ok(Message::ObjectDatagram(DatagramHeader::deserialize(r)?)),
             MessageType::SubscribeUpdate => {
-                Ok(Message::SubscribeUpdate(SubscribeUpdate::decode(r)?))
+                Ok(Message::SubscribeUpdate(SubscribeUpdate::deserialize(r)?))
             }
-            MessageType::Subscribe => Ok(Message::Subscribe(Subscribe::decode(r)?)),
-            MessageType::SubscribeOk => Ok(Message::SubscribeOk(SubscribeOk::decode(r)?)),
-            MessageType::SubscribeError => Ok(Message::SubscribeError(SubscribeError::decode(r)?)),
-            MessageType::Announce => Ok(Message::Announce(Announce::decode(r)?)),
-            MessageType::AnnounceOk => Ok(Message::AnnounceOk(AnnounceOk::decode(r)?)),
-            MessageType::AnnounceError => Ok(Message::AnnounceError(AnnounceError::decode(r)?)),
-            MessageType::UnAnnounce => Ok(Message::UnAnnounce(UnAnnounce::decode(r)?)),
-            MessageType::UnSubscribe => Ok(Message::UnSubscribe(UnSubscribe::decode(r)?)),
-            MessageType::SubscribeDone => Ok(Message::SubscribeDone(SubscribeDone::decode(r)?)),
-            MessageType::AnnounceCancel => Ok(Message::AnnounceCancel(AnnounceCancel::decode(r)?)),
+            MessageType::Subscribe => Ok(Message::Subscribe(Subscribe::deserialize(r)?)),
+            MessageType::SubscribeOk => Ok(Message::SubscribeOk(SubscribeOk::deserialize(r)?)),
+            MessageType::SubscribeError => Ok(Message::SubscribeError(SubscribeError::deserialize(r)?)),
+            MessageType::Announce => Ok(Message::Announce(Announce::deserialize(r)?)),
+            MessageType::AnnounceOk => Ok(Message::AnnounceOk(AnnounceOk::deserialize(r)?)),
+            MessageType::AnnounceError => Ok(Message::AnnounceError(AnnounceError::deserialize(r)?)),
+            MessageType::UnAnnounce => Ok(Message::UnAnnounce(UnAnnounce::deserialize(r)?)),
+            MessageType::UnSubscribe => Ok(Message::UnSubscribe(UnSubscribe::deserialize(r)?)),
+            MessageType::SubscribeDone => Ok(Message::SubscribeDone(SubscribeDone::deserialize(r)?)),
+            MessageType::AnnounceCancel => Ok(Message::AnnounceCancel(AnnounceCancel::deserialize(r)?)),
             MessageType::TrackStatusRequest => {
-                Ok(Message::TrackStatusRequest(TrackStatusRequest::decode(r)?))
+                Ok(Message::TrackStatusRequest(TrackStatusRequest::deserialize(r)?))
             }
-            MessageType::TrackStatus => Ok(Message::TrackStatus(TrackStatus::decode(r)?)),
-            MessageType::GoAway => Ok(Message::GoAway(GoAway::decode(r)?)),
-            MessageType::ClientSetup => Ok(Message::ClientSetup(ClientSetup::decode(r)?)),
-            MessageType::ServerSetup => Ok(Message::ServerSetup(ServerSetup::decode(r)?)),
+            MessageType::TrackStatus => Ok(Message::TrackStatus(TrackStatus::deserialize(r)?)),
+            MessageType::GoAway => Ok(Message::GoAway(GoAway::deserialize(r)?)),
+            MessageType::ClientSetup => Ok(Message::ClientSetup(ClientSetup::deserialize(r)?)),
+            MessageType::ServerSetup => Ok(Message::ServerSetup(ServerSetup::deserialize(r)?)),
             MessageType::StreamHeaderTrack => {
-                Ok(Message::StreamHeaderTrack(TrackHeader::decode(r)?))
+                Ok(Message::StreamHeaderTrack(TrackHeader::deserialize(r)?))
             }
             MessageType::StreamHeaderGroup => {
-                Ok(Message::StreamHeaderGroup(GroupHeader::decode(r)?))
+                Ok(Message::StreamHeaderGroup(GroupHeader::deserialize(r)?))
             }
         }
     }
 }
 
-impl Encodable for Message {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+impl Serializer for Message {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         match self {
             Message::ObjectStream(stream_header) => {
-                let mut l = MessageType::ObjectStream.encode(w)?;
-                l += stream_header.encode(w)?;
+                let mut l = MessageType::ObjectStream.serialize(w)?;
+                l += stream_header.serialize(w)?;
                 Ok(l)
             }
             Message::ObjectDatagram(datagram_header) => {
-                let mut l = MessageType::ObjectDatagram.encode(w)?;
-                l += datagram_header.encode(w)?;
+                let mut l = MessageType::ObjectDatagram.serialize(w)?;
+                l += datagram_header.serialize(w)?;
                 Ok(l)
             }
             Message::SubscribeUpdate(subscribe_update) => {
-                let mut l = MessageType::SubscribeUpdate.encode(w)?;
-                l += subscribe_update.encode(w)?;
+                let mut l = MessageType::SubscribeUpdate.serialize(w)?;
+                l += subscribe_update.serialize(w)?;
                 Ok(l)
             }
             Message::Subscribe(subscribe) => {
-                let mut l = MessageType::Subscribe.encode(w)?;
-                l += subscribe.encode(w)?;
+                let mut l = MessageType::Subscribe.serialize(w)?;
+                l += subscribe.serialize(w)?;
                 Ok(l)
             }
             Message::SubscribeOk(subscribe_ok) => {
-                let mut l = MessageType::SubscribeOk.encode(w)?;
-                l += subscribe_ok.encode(w)?;
+                let mut l = MessageType::SubscribeOk.serialize(w)?;
+                l += subscribe_ok.serialize(w)?;
                 Ok(l)
             }
             Message::SubscribeError(subscribe_error) => {
-                let mut l = MessageType::SubscribeError.encode(w)?;
-                l += subscribe_error.encode(w)?;
+                let mut l = MessageType::SubscribeError.serialize(w)?;
+                l += subscribe_error.serialize(w)?;
                 Ok(l)
             }
             Message::Announce(announce) => {
-                let mut l = MessageType::Announce.encode(w)?;
-                l += announce.encode(w)?;
+                let mut l = MessageType::Announce.serialize(w)?;
+                l += announce.serialize(w)?;
                 Ok(l)
             }
             Message::AnnounceOk(announce_ok) => {
-                let mut l = MessageType::AnnounceOk.encode(w)?;
-                l += announce_ok.encode(w)?;
+                let mut l = MessageType::AnnounceOk.serialize(w)?;
+                l += announce_ok.serialize(w)?;
                 Ok(l)
             }
             Message::AnnounceError(announce_error) => {
-                let mut l = MessageType::AnnounceError.encode(w)?;
-                l += announce_error.encode(w)?;
+                let mut l = MessageType::AnnounceError.serialize(w)?;
+                l += announce_error.serialize(w)?;
                 Ok(l)
             }
             Message::UnAnnounce(unannounce) => {
-                let mut l = MessageType::UnAnnounce.encode(w)?;
-                l += unannounce.encode(w)?;
+                let mut l = MessageType::UnAnnounce.serialize(w)?;
+                l += unannounce.serialize(w)?;
                 Ok(l)
             }
             Message::UnSubscribe(unsubscribe) => {
-                let mut l = MessageType::UnSubscribe.encode(w)?;
-                l += unsubscribe.encode(w)?;
+                let mut l = MessageType::UnSubscribe.serialize(w)?;
+                l += unsubscribe.serialize(w)?;
                 Ok(l)
             }
             Message::SubscribeDone(subscribe_done) => {
-                let mut l = MessageType::SubscribeDone.encode(w)?;
-                l += subscribe_done.encode(w)?;
+                let mut l = MessageType::SubscribeDone.serialize(w)?;
+                l += subscribe_done.serialize(w)?;
                 Ok(l)
             }
             Message::AnnounceCancel(announce_cancel) => {
-                let mut l = MessageType::AnnounceCancel.encode(w)?;
-                l += announce_cancel.encode(w)?;
+                let mut l = MessageType::AnnounceCancel.serialize(w)?;
+                l += announce_cancel.serialize(w)?;
                 Ok(l)
             }
             Message::TrackStatusRequest(track_status_request) => {
-                let mut l = MessageType::TrackStatusRequest.encode(w)?;
-                l += track_status_request.encode(w)?;
+                let mut l = MessageType::TrackStatusRequest.serialize(w)?;
+                l += track_status_request.serialize(w)?;
                 Ok(l)
             }
             Message::TrackStatus(track_status) => {
-                let mut l = MessageType::TrackStatus.encode(w)?;
-                l += track_status.encode(w)?;
+                let mut l = MessageType::TrackStatus.serialize(w)?;
+                l += track_status.serialize(w)?;
                 Ok(l)
             }
             Message::GoAway(go_away) => {
-                let mut l = MessageType::GoAway.encode(w)?;
-                l += go_away.encode(w)?;
+                let mut l = MessageType::GoAway.serialize(w)?;
+                l += go_away.serialize(w)?;
                 Ok(l)
             }
             Message::ClientSetup(client_setup) => {
-                let mut l = MessageType::ClientSetup.encode(w)?;
-                l += client_setup.encode(w)?;
+                let mut l = MessageType::ClientSetup.serialize(w)?;
+                l += client_setup.serialize(w)?;
                 Ok(l)
             }
             Message::ServerSetup(server_setup) => {
-                let mut l = MessageType::ServerSetup.encode(w)?;
-                l += server_setup.encode(w)?;
+                let mut l = MessageType::ServerSetup.serialize(w)?;
+                l += server_setup.serialize(w)?;
                 Ok(l)
             }
             Message::StreamHeaderTrack(track_header) => {
-                let mut l = MessageType::StreamHeaderTrack.encode(w)?;
-                l += track_header.encode(w)?;
+                let mut l = MessageType::StreamHeaderTrack.serialize(w)?;
+                l += track_header.serialize(w)?;
                 Ok(l)
             }
             Message::StreamHeaderGroup(group_header) => {
-                let mut l = MessageType::StreamHeaderGroup.encode(w)?;
-                l += group_header.encode(w)?;
+                let mut l = MessageType::StreamHeaderGroup.serialize(w)?;
+                l += group_header.serialize(w)?;
                 Ok(l)
             }
         }

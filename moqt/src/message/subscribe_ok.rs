@@ -1,5 +1,5 @@
 use crate::message::FullSequence;
-use crate::{Decodable, Encodable, Result};
+use crate::{Deserializer, Serializer, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -11,14 +11,14 @@ pub struct SubscribeOk {
     pub largest_group_object: Option<FullSequence>,
 }
 
-impl Decodable for SubscribeOk {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::decode(r)?;
+impl Deserializer for SubscribeOk {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let subscribe_id = u64::deserialize(r)?;
 
-        let expires = u64::decode(r)?;
+        let expires = u64::deserialize(r)?;
 
-        let largest_group_object = if bool::decode(r)? {
-            Some(FullSequence::decode(r)?)
+        let largest_group_object = if bool::deserialize(r)? {
+            Some(FullSequence::deserialize(r)?)
         } else {
             None
         };
@@ -33,16 +33,16 @@ impl Decodable for SubscribeOk {
     }
 }
 
-impl Encodable for SubscribeOk {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.subscribe_id.encode(w)?;
+impl Serializer for SubscribeOk {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.subscribe_id.serialize(w)?;
 
-        l += self.expires.encode(w)?;
+        l += self.expires.serialize(w)?;
 
         l += if let Some(largest_group_object) = self.largest_group_object.as_ref() {
-            true.encode(w)? + largest_group_object.encode(w)?
+            true.serialize(w)? + largest_group_object.serialize(w)?
         } else {
-            false.encode(w)?
+            false.serialize(w)?
         };
 
         Ok(l)

@@ -1,6 +1,6 @@
-use crate::codable::parameters::ParameterKey;
+use crate::serde::parameters::ParameterKey;
 use crate::message::{Role, Version};
-use crate::{Decodable, Encodable, Error, Parameters, Result};
+use crate::{Deserializer, Serializer, Error, Parameters, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -10,15 +10,15 @@ pub struct ClientSetup {
     pub path: Option<String>,
 }
 
-impl Decodable for ClientSetup {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let number_supported_versions = usize::decode(r)?;
+impl Deserializer for ClientSetup {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let number_supported_versions = usize::deserialize(r)?;
         let mut supported_versions = Vec::with_capacity(number_supported_versions);
         for _ in 0..number_supported_versions {
-            supported_versions.push(Version::decode(r)?);
+            supported_versions.push(Version::deserialize(r)?);
         }
 
-        let mut parameters = Parameters::decode(r)?;
+        let mut parameters = Parameters::deserialize(r)?;
         let role: Role = parameters
             .remove(ParameterKey::Role)
             .ok_or(Error::ErrMissingParameter)?;
@@ -32,11 +32,11 @@ impl Decodable for ClientSetup {
     }
 }
 
-impl Encodable for ClientSetup {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        let mut l = self.supported_versions.len().encode(w)?;
+impl Serializer for ClientSetup {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        let mut l = self.supported_versions.len().serialize(w)?;
         for supported_version in self.supported_versions.iter() {
-            l += supported_version.encode(w)?;
+            l += supported_version.serialize(w)?;
         }
 
         let mut parameters = Parameters::new();
@@ -44,7 +44,7 @@ impl Encodable for ClientSetup {
         if let Some(path) = self.path.as_ref() {
             parameters.insert(ParameterKey::Path, path.to_string())?;
         }
-        l += parameters.encode(w)?;
+        l += parameters.serialize(w)?;
 
         Ok(l)
     }

@@ -1,10 +1,10 @@
 #![warn(rust_2018_idioms)]
 #![allow(dead_code)]
 
-mod codable;
+mod serde;
 mod error;
 mod message;
 mod session;
 
-pub use codable::{parameters::Parameters, varint::VarInt, Decodable, Encodable};
+pub use serde::{parameters::Parameters, varint::VarInt, Deserializer, Serializer};
 pub use error::{Error, Result};

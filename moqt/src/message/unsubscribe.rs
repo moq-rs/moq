@@ -1,4 +1,4 @@
-use crate::{Decodable, Encodable, Result};
+use crate::{Deserializer, Serializer, Result};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -6,15 +6,15 @@ pub struct UnSubscribe {
     pub subscribe_id: u64,
 }
 
-impl Decodable for UnSubscribe {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::decode(r)?;
+impl Deserializer for UnSubscribe {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        let subscribe_id = u64::deserialize(r)?;
         Ok(Self { subscribe_id })
     }
 }
 
-impl Encodable for UnSubscribe {
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        self.subscribe_id.encode(w)
+impl Serializer for UnSubscribe {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        self.subscribe_id.serialize(w)
     }
 }

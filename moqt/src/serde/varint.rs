@@ -1,4 +1,4 @@
-use crate::codable::{Decodable, Encodable};
+use crate::serde::{Deserializer, Serializer};
 use crate::{Error, Result};
 use bytes::{Buf, BufMut};
 use std::fmt;
@@ -122,8 +122,8 @@ impl fmt::Display for VarInt {
     }
 }
 
-impl Decodable for VarInt {
-    fn decode<B: Buf>(r: &mut B) -> Result<Self> {
+impl Deserializer for VarInt {
+    fn deserialize<B: Buf>(r: &mut B) -> Result<Self> {
         if !r.has_remaining() {
             return Err(Error::ErrUnexpectedEnd);
         }
@@ -160,8 +160,8 @@ impl Decodable for VarInt {
     }
 }
 
-impl Encodable for VarInt {
-    fn encode<B: BufMut>(&self, w: &mut B) -> Result<usize> {
+impl Serializer for VarInt {
+    fn serialize<B: BufMut>(&self, w: &mut B) -> Result<usize> {
         let x = self.0;
         if x < 2u64.pow(6) {
             if w.remaining_mut() < 1 {
@@ -193,30 +193,30 @@ impl Encodable for VarInt {
     }
 }
 
-impl Encodable for u64 {
+impl Serializer for u64 {
     /// Encode a varint to the given writer.
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let var = VarInt::try_from(*self)?;
-        var.encode(w)
+        var.serialize(w)
     }
 }
 
-impl Decodable for u64 {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        VarInt::decode(r).map(|v| v.into_inner())
+impl Deserializer for u64 {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        VarInt::deserialize(r).map(|v| v.into_inner())
     }
 }
 
-impl Encodable for usize {
+impl Serializer for usize {
     /// Encode a varint to the given writer.
-    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let var = VarInt::try_from(*self)?;
-        var.encode(w)
+        var.serialize(w)
     }
 }
 
-impl Decodable for usize {
-    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
-        VarInt::decode(r).map(|v| v.into_inner() as usize)
+impl Deserializer for usize {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+        VarInt::deserialize(r).map(|v| v.into_inner() as usize)
     }
 }
