@@ -5,7 +5,7 @@ pub enum Perspective {
     Client,
 }
 
-pub struct Config {
+pub struct SessionParameter {
     pub version: Version,
     pub perspective: Perspective,
     pub use_web_transport: bool,
