@@ -1,5 +1,5 @@
 use crate::message::FullSequence;
-use crate::{Deserializer, Serializer, Result};
+use crate::{Deserializer, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]

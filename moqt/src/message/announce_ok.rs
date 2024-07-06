@@ -1,4 +1,4 @@
-use crate::{Deserializer, Serializer, Result};
+use crate::{Deserializer, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]

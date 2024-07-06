@@ -1,6 +1,6 @@
-use crate::serde::parameters::ParameterKey;
 use crate::message::FilterType;
-use crate::{Deserializer, Serializer, Parameters, Result};
+use crate::serde::parameters::ParameterKey;
+use crate::{Deserializer, Parameters, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]

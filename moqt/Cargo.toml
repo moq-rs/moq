@@ -12,3 +12,4 @@ repository = "https://github.com/moq-rs/moq"
 [dependencies]
 bytes = "1.6.0"
 thiserror = "1.0.61"
+log = "0.4.22"

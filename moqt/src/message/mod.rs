@@ -18,7 +18,7 @@ use crate::message::track_status::TrackStatus;
 use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
-use crate::{Deserializer, Serializer, Error, Result};
+use crate::{Deserializer, Error, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 pub mod announce;
@@ -112,7 +112,7 @@ impl Serializer for MessageType {
     }
 }
 
-#[derive(Default, Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, Eq, PartialEq, PartialOrd, Hash)]
 pub struct FullTrackName {
     pub track_namespace: String,
     pub track_name: String,
@@ -137,10 +137,19 @@ impl Serializer for FullTrackName {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Hash)]
 pub struct FullSequence {
     pub group_id: u64,
     pub object_id: u64,
+}
+
+impl FullSequence {
+    pub fn next(&self) -> Self {
+        Self {
+            group_id: self.group_id,
+            object_id: self.object_id + 1,
+        }
+    }
 }
 
 impl Deserializer for FullSequence {
@@ -313,23 +322,33 @@ impl Deserializer for Message {
         let message_type = MessageType::deserialize(r)?;
         match message_type {
             MessageType::ObjectStream => Ok(Message::ObjectStream(StreamHeader::deserialize(r)?)),
-            MessageType::ObjectDatagram => Ok(Message::ObjectDatagram(DatagramHeader::deserialize(r)?)),
+            MessageType::ObjectDatagram => {
+                Ok(Message::ObjectDatagram(DatagramHeader::deserialize(r)?))
+            }
             MessageType::SubscribeUpdate => {
                 Ok(Message::SubscribeUpdate(SubscribeUpdate::deserialize(r)?))
             }
             MessageType::Subscribe => Ok(Message::Subscribe(Subscribe::deserialize(r)?)),
             MessageType::SubscribeOk => Ok(Message::SubscribeOk(SubscribeOk::deserialize(r)?)),
-            MessageType::SubscribeError => Ok(Message::SubscribeError(SubscribeError::deserialize(r)?)),
+            MessageType::SubscribeError => {
+                Ok(Message::SubscribeError(SubscribeError::deserialize(r)?))
+            }
             MessageType::Announce => Ok(Message::Announce(Announce::deserialize(r)?)),
             MessageType::AnnounceOk => Ok(Message::AnnounceOk(AnnounceOk::deserialize(r)?)),
-            MessageType::AnnounceError => Ok(Message::AnnounceError(AnnounceError::deserialize(r)?)),
+            MessageType::AnnounceError => {
+                Ok(Message::AnnounceError(AnnounceError::deserialize(r)?))
+            }
             MessageType::UnAnnounce => Ok(Message::UnAnnounce(UnAnnounce::deserialize(r)?)),
             MessageType::UnSubscribe => Ok(Message::UnSubscribe(UnSubscribe::deserialize(r)?)),
-            MessageType::SubscribeDone => Ok(Message::SubscribeDone(SubscribeDone::deserialize(r)?)),
-            MessageType::AnnounceCancel => Ok(Message::AnnounceCancel(AnnounceCancel::deserialize(r)?)),
-            MessageType::TrackStatusRequest => {
-                Ok(Message::TrackStatusRequest(TrackStatusRequest::deserialize(r)?))
+            MessageType::SubscribeDone => {
+                Ok(Message::SubscribeDone(SubscribeDone::deserialize(r)?))
             }
+            MessageType::AnnounceCancel => {
+                Ok(Message::AnnounceCancel(AnnounceCancel::deserialize(r)?))
+            }
+            MessageType::TrackStatusRequest => Ok(Message::TrackStatusRequest(
+                TrackStatusRequest::deserialize(r)?,
+            )),
             MessageType::TrackStatus => Ok(Message::TrackStatus(TrackStatus::deserialize(r)?)),
             MessageType::GoAway => Ok(Message::GoAway(GoAway::deserialize(r)?)),
             MessageType::ClientSetup => Ok(Message::ClientSetup(ClientSetup::deserialize(r)?)),

@@ -1,6 +1,6 @@
-use crate::serde::parameters::ParameterKey;
 use crate::message::{Role, Version};
-use crate::{Deserializer, Serializer, Error, Parameters, Result};
+use crate::serde::parameters::ParameterKey;
+use crate::{Deserializer, Error, Parameters, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]

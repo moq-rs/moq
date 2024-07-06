@@ -1,8 +1,8 @@
 //TODO: no MessageType defined for SubscribeUpdate in https://www.ietf.org/archive/id/draft-ietf-moq-transport-04.html#name-messages
 
-use crate::serde::parameters::ParameterKey;
 use crate::message::FullSequence;
-use crate::{Deserializer, Serializer, Parameters};
+use crate::serde::parameters::ParameterKey;
+use crate::{Deserializer, Parameters, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
