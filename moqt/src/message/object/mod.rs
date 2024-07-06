@@ -1,7 +1,7 @@
-mod datagram;
-mod group;
-mod stream;
-mod track;
+pub mod datagram;
+pub mod group;
+pub mod stream;
+pub mod track;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ObjectForwardingPreference {
@@ -34,16 +34,4 @@ impl From<u64> for ObjectStatus {
             _ => Self::Invalid,
         }
     }
-}
-
-#[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct Object {
-    pub subscribe_id: u64,
-    pub track_alias: u64,
-    pub group_id: u64,
-    pub object_id: u64,
-    pub object_send_order: u64,
-    pub object_status: ObjectStatus,
-    pub object_forwarding_preference: ObjectForwardingPreference,
-    pub object_payload_length: Option<u64>,
 }

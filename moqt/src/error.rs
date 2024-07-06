@@ -41,6 +41,10 @@ pub enum Error {
     ErrUnsupportedVersion(u64),
     #[error("invalid role: {0}")]
     ErrInvalidRole(u64),
+    #[error("track or group forward preference requires length")]
+    ErrTrackGroupForwardPreferenceRequiresLength,
+    #[error("object status must be kNormal if payload is non-empty")]
+    ErrNonEmptyPayloadMustBeWithNormalObjectStatus,
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),

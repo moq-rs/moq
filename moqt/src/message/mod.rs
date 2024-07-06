@@ -1,23 +1,43 @@
+use crate::message::announce::Announce;
+use crate::message::announce_cancel::AnnounceCancel;
+use crate::message::announce_error::AnnounceError;
+use crate::message::announce_ok::AnnounceOk;
+use crate::message::client_setup::ClientSetup;
+use crate::message::go_away::GoAway;
+use crate::message::object::datagram::DatagramHeader;
+use crate::message::object::group::GroupHeader;
+use crate::message::object::stream::StreamHeader;
+use crate::message::object::track::TrackHeader;
+use crate::message::server_setup::ServerSetup;
+use crate::message::subscribe::Subscribe;
+use crate::message::subscribe_done::SubscribeDone;
+use crate::message::subscribe_error::SubscribeError;
+use crate::message::subscribe_ok::SubscribeOk;
+use crate::message::subscribe_update::SubscribeUpdate;
+use crate::message::track_status::TrackStatus;
+use crate::message::track_status_request::TrackStatusRequest;
+use crate::message::unannounce::UnAnnounce;
+use crate::message::unsubscribe::UnSubscribe;
 use crate::{Decodable, Encodable, Error, Result};
 use bytes::{Buf, BufMut};
 
-mod announce;
-mod announce_cancel;
-mod announce_error;
-mod announce_ok;
-mod client_setup;
-mod go_away;
-mod object;
-mod server_setup;
-mod subscribe;
-mod subscribe_done;
-mod subscribe_error;
-mod subscribe_ok;
-mod subscribe_update;
-mod track_status;
-mod track_status_request;
-mod unannounce;
-mod unsubscribe;
+pub mod announce;
+pub mod announce_cancel;
+pub mod announce_error;
+pub mod announce_ok;
+pub mod client_setup;
+pub mod go_away;
+pub mod object;
+pub mod server_setup;
+pub mod subscribe;
+pub mod subscribe_done;
+pub mod subscribe_error;
+pub mod subscribe_ok;
+pub mod subscribe_update;
+pub mod track_status;
+pub mod track_status_request;
+pub mod unannounce;
+pub mod unsubscribe;
 
 /// The maximum length of a message, excluding and OBJECT payload.
 /// This prevents DoS attack via forcing the parser to buffer a large
@@ -56,6 +76,7 @@ impl TryFrom<u64> for MessageType {
         match value {
             0x0 => Ok(MessageType::ObjectStream),
             0x1 => Ok(MessageType::ObjectDatagram),
+            0x2 => Ok(MessageType::SubscribeUpdate),
             0x3 => Ok(MessageType::Subscribe),
             0x4 => Ok(MessageType::SubscribeOk),
             0x5 => Ok(MessageType::SubscribeError),
@@ -260,5 +281,172 @@ impl Decodable for Role {
 impl Encodable for Role {
     fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         (*self as u64).encode(w)
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Message {
+    ObjectStream(StreamHeader),
+    ObjectDatagram(DatagramHeader),
+    SubscribeUpdate(SubscribeUpdate),
+    Subscribe(Subscribe),
+    SubscribeOk(SubscribeOk),
+    SubscribeError(SubscribeError),
+    Announce(Announce),
+    AnnounceOk(AnnounceOk),
+    AnnounceError(AnnounceError),
+    UnAnnounce(UnAnnounce),
+    UnSubscribe(UnSubscribe),
+    SubscribeDone(SubscribeDone),
+    AnnounceCancel(AnnounceCancel),
+    TrackStatusRequest(TrackStatusRequest),
+    TrackStatus(TrackStatus),
+    GoAway(GoAway),
+    ClientSetup(ClientSetup),
+    ServerSetup(ServerSetup),
+    StreamHeaderTrack(TrackHeader),
+    StreamHeaderGroup(GroupHeader),
+}
+
+impl Decodable for Message {
+    fn decode<R: Buf>(r: &mut R) -> Result<Self> {
+        let message_type = MessageType::decode(r)?;
+        match message_type {
+            MessageType::ObjectStream => Ok(Message::ObjectStream(StreamHeader::decode(r)?)),
+            MessageType::ObjectDatagram => Ok(Message::ObjectDatagram(DatagramHeader::decode(r)?)),
+            MessageType::SubscribeUpdate => {
+                Ok(Message::SubscribeUpdate(SubscribeUpdate::decode(r)?))
+            }
+            MessageType::Subscribe => Ok(Message::Subscribe(Subscribe::decode(r)?)),
+            MessageType::SubscribeOk => Ok(Message::SubscribeOk(SubscribeOk::decode(r)?)),
+            MessageType::SubscribeError => Ok(Message::SubscribeError(SubscribeError::decode(r)?)),
+            MessageType::Announce => Ok(Message::Announce(Announce::decode(r)?)),
+            MessageType::AnnounceOk => Ok(Message::AnnounceOk(AnnounceOk::decode(r)?)),
+            MessageType::AnnounceError => Ok(Message::AnnounceError(AnnounceError::decode(r)?)),
+            MessageType::UnAnnounce => Ok(Message::UnAnnounce(UnAnnounce::decode(r)?)),
+            MessageType::UnSubscribe => Ok(Message::UnSubscribe(UnSubscribe::decode(r)?)),
+            MessageType::SubscribeDone => Ok(Message::SubscribeDone(SubscribeDone::decode(r)?)),
+            MessageType::AnnounceCancel => Ok(Message::AnnounceCancel(AnnounceCancel::decode(r)?)),
+            MessageType::TrackStatusRequest => {
+                Ok(Message::TrackStatusRequest(TrackStatusRequest::decode(r)?))
+            }
+            MessageType::TrackStatus => Ok(Message::TrackStatus(TrackStatus::decode(r)?)),
+            MessageType::GoAway => Ok(Message::GoAway(GoAway::decode(r)?)),
+            MessageType::ClientSetup => Ok(Message::ClientSetup(ClientSetup::decode(r)?)),
+            MessageType::ServerSetup => Ok(Message::ServerSetup(ServerSetup::decode(r)?)),
+            MessageType::StreamHeaderTrack => {
+                Ok(Message::StreamHeaderTrack(TrackHeader::decode(r)?))
+            }
+            MessageType::StreamHeaderGroup => {
+                Ok(Message::StreamHeaderGroup(GroupHeader::decode(r)?))
+            }
+        }
+    }
+}
+
+impl Encodable for Message {
+    fn encode<W: BufMut>(&self, w: &mut W) -> Result<usize> {
+        match self {
+            Message::ObjectStream(stream_header) => {
+                let mut l = MessageType::ObjectStream.encode(w)?;
+                l += stream_header.encode(w)?;
+                Ok(l)
+            }
+            Message::ObjectDatagram(datagram_header) => {
+                let mut l = MessageType::ObjectDatagram.encode(w)?;
+                l += datagram_header.encode(w)?;
+                Ok(l)
+            }
+            Message::SubscribeUpdate(subscribe_update) => {
+                let mut l = MessageType::SubscribeUpdate.encode(w)?;
+                l += subscribe_update.encode(w)?;
+                Ok(l)
+            }
+            Message::Subscribe(subscribe) => {
+                let mut l = MessageType::Subscribe.encode(w)?;
+                l += subscribe.encode(w)?;
+                Ok(l)
+            }
+            Message::SubscribeOk(subscribe_ok) => {
+                let mut l = MessageType::SubscribeOk.encode(w)?;
+                l += subscribe_ok.encode(w)?;
+                Ok(l)
+            }
+            Message::SubscribeError(subscribe_error) => {
+                let mut l = MessageType::SubscribeError.encode(w)?;
+                l += subscribe_error.encode(w)?;
+                Ok(l)
+            }
+            Message::Announce(announce) => {
+                let mut l = MessageType::Announce.encode(w)?;
+                l += announce.encode(w)?;
+                Ok(l)
+            }
+            Message::AnnounceOk(announce_ok) => {
+                let mut l = MessageType::AnnounceOk.encode(w)?;
+                l += announce_ok.encode(w)?;
+                Ok(l)
+            }
+            Message::AnnounceError(announce_error) => {
+                let mut l = MessageType::AnnounceError.encode(w)?;
+                l += announce_error.encode(w)?;
+                Ok(l)
+            }
+            Message::UnAnnounce(unannounce) => {
+                let mut l = MessageType::UnAnnounce.encode(w)?;
+                l += unannounce.encode(w)?;
+                Ok(l)
+            }
+            Message::UnSubscribe(unsubscribe) => {
+                let mut l = MessageType::UnSubscribe.encode(w)?;
+                l += unsubscribe.encode(w)?;
+                Ok(l)
+            }
+            Message::SubscribeDone(subscribe_done) => {
+                let mut l = MessageType::SubscribeDone.encode(w)?;
+                l += subscribe_done.encode(w)?;
+                Ok(l)
+            }
+            Message::AnnounceCancel(announce_cancel) => {
+                let mut l = MessageType::AnnounceCancel.encode(w)?;
+                l += announce_cancel.encode(w)?;
+                Ok(l)
+            }
+            Message::TrackStatusRequest(track_status_request) => {
+                let mut l = MessageType::TrackStatusRequest.encode(w)?;
+                l += track_status_request.encode(w)?;
+                Ok(l)
+            }
+            Message::TrackStatus(track_status) => {
+                let mut l = MessageType::TrackStatus.encode(w)?;
+                l += track_status.encode(w)?;
+                Ok(l)
+            }
+            Message::GoAway(go_away) => {
+                let mut l = MessageType::GoAway.encode(w)?;
+                l += go_away.encode(w)?;
+                Ok(l)
+            }
+            Message::ClientSetup(client_setup) => {
+                let mut l = MessageType::ClientSetup.encode(w)?;
+                l += client_setup.encode(w)?;
+                Ok(l)
+            }
+            Message::ServerSetup(server_setup) => {
+                let mut l = MessageType::ServerSetup.encode(w)?;
+                l += server_setup.encode(w)?;
+                Ok(l)
+            }
+            Message::StreamHeaderTrack(track_header) => {
+                let mut l = MessageType::StreamHeaderTrack.encode(w)?;
+                l += track_header.encode(w)?;
+                Ok(l)
+            }
+            Message::StreamHeaderGroup(group_header) => {
+                let mut l = MessageType::StreamHeaderGroup.encode(w)?;
+                l += group_header.encode(w)?;
+                Ok(l)
+            }
+        }
     }
 }
