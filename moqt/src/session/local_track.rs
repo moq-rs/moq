@@ -22,7 +22,6 @@ pub struct LocalTrack {
     // Entry does not exist, if no kGroupDoesNotExist, EndOfGroup, or
     // EndOfTrack has been received for that group.
     max_object_ids: HashMap<u64, u64>,
-    //Visitor* visitor_;
 
     // If true, the session has received ANNOUNCE_CANCELED for this namespace.
     // Additional subscribes will be a protocol error, and the track can be
