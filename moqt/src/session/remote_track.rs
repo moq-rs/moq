@@ -3,10 +3,11 @@ use crate::message::FullTrackName;
 use bytes::Bytes;
 
 pub trait RemoteTrackVisitor {
-    fn on_reply(&self, full_track_name: &FullTrackName, error_reason_phrase: Option<String>);
+    fn on_reply(&mut self, full_track_name: &FullTrackName, error_reason_phrase: Option<String>);
 
     #[allow(clippy::too_many_arguments)]
     fn on_object_fragment(
+        &mut self,
         full_track_name: &FullTrackName,
         group_id: u64,
         object_id: u64,

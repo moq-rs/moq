@@ -9,6 +9,12 @@ pub enum AnnounceErrorCode {
 }
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
+pub struct AnnounceErrorReason {
+    pub error_code: AnnounceErrorCode,
+    pub reason_phrase: String,
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct AnnounceError {
     pub track_namespace: String,
     pub error_code: u64,

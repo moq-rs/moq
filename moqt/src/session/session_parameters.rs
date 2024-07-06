@@ -1,11 +1,14 @@
 use crate::message::Version;
 
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Perspective {
+    #[default]
     Server,
     Client,
 }
 
-pub struct SessionParameter {
+#[derive(Default, Debug, Clone, Eq, PartialEq)]
+pub struct SessionParameters {
     pub version: Version,
     pub perspective: Perspective,
     pub use_web_transport: bool,

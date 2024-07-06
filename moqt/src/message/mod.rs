@@ -261,9 +261,9 @@ impl Serializer for Version {
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Role {
-    #[default]
     Publisher = 0x1,
     Subscriber = 0x2,
+    #[default]
     PubSub = 0x3,
 }
 

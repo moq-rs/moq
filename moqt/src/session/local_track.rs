@@ -15,7 +15,7 @@ pub trait LocalTrackVisitor {
     /// API, the application decides if a partially fulfillable
     /// SUBSCRIBE results in an error or not.
     fn on_subscribe_for_past(
-        &self,
+        &mut self,
         window: &SubscribeWindow,
     ) -> Result<Option<PublishPastObjectsCallback>>;
 }
