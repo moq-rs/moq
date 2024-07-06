@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 mod error;
+mod handler;
 mod message;
 mod serde;
 mod session;
