@@ -15,6 +15,9 @@ use crate::message::track_status::TrackStatus;
 use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
+use crate::message::{Message, MessageType, MAX_MESSSAGE_HEADER_SIZE};
+use crate::serde::Deserializer;
+use crate::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::collections::VecDeque;
 
@@ -96,7 +99,7 @@ impl MessageParser {
     /// Any calls after sending |fin| = true will be ignored.
     /// TODO: Figure out what has to happen if the message arrives via
     ///       datagram rather than a stream.
-    pub fn process_data<R: Buf>(&mut self, r: &mut R, fin: bool) {
+    pub fn process_data<R: Buf>(&mut self, buf: &mut R, fin: bool) {
         if self.no_more_data {
             self.parse_error(
                 ParserErrorCode::ProtocolViolation,
@@ -107,14 +110,15 @@ impl MessageParser {
         // Check for early fin
         if fin {
             self.no_more_data = true;
-            if self.object_payload_in_progress() && self.payload_length_remaining > r.remaining() {
+            if self.object_payload_in_progress() && self.payload_length_remaining > buf.remaining()
+            {
                 self.parse_error(
                     ParserErrorCode::ProtocolViolation,
                     "End of stream before complete OBJECT PAYLOAD".to_string(),
                 );
                 return;
             }
-            if !self.buffered_message.is_empty() && !r.has_remaining() {
+            if !self.buffered_message.is_empty() && !buf.has_remaining() {
                 self.parse_error(
                     ParserErrorCode::ProtocolViolation,
                     "End of stream before complete message".to_string(),
@@ -123,21 +127,21 @@ impl MessageParser {
             }
         }
 
-        //let reader: &mut dyn Buf;
-        let original_buffer_size = self.buffered_message.len();
+        self.buffered_message.put(buf);
+
         // There are three cases: the parser has already delivered an OBJECT header
         // and is now delivering payload; part of a message is in the buffer; or
         // no message is in progress.
         if self.object_payload_in_progress() {
             if let Some(object_metadata) = self.object_metadata.as_ref() {
                 // This is additional payload for an OBJECT.
-                assert!(self.buffered_message.is_empty());
                 if object_metadata.object_payload_length.is_none() {
                     // Deliver the data and exit.
                     self.parser_events
                         .push_back(MessageParserEvent::ObjectMessage(
                             *object_metadata,
-                            r.copy_to_bytes(r.remaining()),
+                            self.buffered_message
+                                .copy_to_bytes(self.buffered_message.remaining()),
                             fin,
                         ));
                     if fin {
@@ -145,62 +149,53 @@ impl MessageParser {
                     }
                     return;
                 }
-                if r.remaining() < self.payload_length_remaining {
+                if self.buffered_message.remaining() < self.payload_length_remaining {
                     // Does not finish the payload; deliver and exit.
-                    self.payload_length_remaining -= r.remaining();
+                    self.payload_length_remaining -= self.buffered_message.remaining();
                     self.parser_events
                         .push_back(MessageParserEvent::ObjectMessage(
                             *object_metadata,
-                            r.copy_to_bytes(r.remaining()),
+                            self.buffered_message
+                                .copy_to_bytes(self.buffered_message.remaining()),
                             false,
                         ));
                     return;
                 }
                 // Finishes the payload. Deliver and continue.
-                //reader = r;
                 self.parser_events
                     .push_back(MessageParserEvent::ObjectMessage(
                         *object_metadata,
-                        r.copy_to_bytes(self.payload_length_remaining),
+                        self.buffered_message
+                            .copy_to_bytes(self.payload_length_remaining),
                         true,
                     ));
                 self.payload_length_remaining = 0; // Expect a new object.
-            } else {
-                //reader = r;
             }
-        } else if !self.buffered_message.is_empty() {
-            self.buffered_message.put(r);
-            //reader = &mut self.buffered_message
-        } else {
-            // No message in progress.
-            //reader = r;
         }
 
-        let total_processed = 0;
-        /*
-        while reader.has_remaining() {
-            let message_len = self.process_message(reader, fin);
-            if (message_len == 0) {
-                if reader.remaining() > MAX_MESSSAGE_HEADER_SIZE {
-                    self.parse_error(ParserErrorCode::InternalError, "Cannot parse non-OBJECT messages > 2KB".to_string());
-                    return;
+        while self.buffered_message.has_remaining() {
+            match self.process_message(fin) {
+                Ok(message_len) => {
+                    self.buffered_message.advance(message_len);
                 }
-                if fin {
-                    self.parse_error(ParserErrorCode::ProtocolViolation, "FIN after incomplete message".to_string());
-                    return;
+                Err(_) => {
+                    if self.buffered_message.remaining() > MAX_MESSSAGE_HEADER_SIZE {
+                        self.parse_error(
+                            ParserErrorCode::InternalError,
+                            "Cannot parse non-OBJECT messages > 2KB".to_string(),
+                        );
+                        return;
+                    }
+                    if fin {
+                        self.parse_error(
+                            ParserErrorCode::ProtocolViolation,
+                            "FIN after incomplete message".to_string(),
+                        );
+                        return;
+                    }
+                    break;
                 }
-                if self.buffered_message.is_empty() {
-                    // If the buffer is not empty, |data| has already been copied there.
-                    self.buffered_message.put(reader.copy_to_bytes(reader.remaining()));
-                }
-                break;
             }
-            // A message was successfully processed.
-            total_processed += message_len;
-            //reader->Seek(message_len);
-        }*/
-        if original_buffer_size > 0 {
-            let _ = self.buffered_message.split_to(total_processed);
         }
     }
 
@@ -215,15 +210,31 @@ impl MessageParser {
         self.parser_events.pop_front()
     }
 
-    fn process_message(&mut self, _r: &mut dyn Buf, _fin: bool) -> usize {
+    fn process_message(&mut self, _fin: bool) -> Result<usize> {
         if self.object_stream_initialized() && !self.object_payload_in_progress() {
             // This is a follow-on object in a stream.
-            return 0; /*& ProcessObject(reader,
-                      GetMessageTypeForForwardingPreference(
-                          object_metadata_->forwarding_preference),
-                      fin);*/
+            return Ok(0); /*& ProcessObject(reader,
+                          GetMessageTypeForForwardingPreference(
+                              object_metadata_->forwarding_preference),
+                          fin);*/
         }
-        0
+        let mut reader = self.buffered_message.as_ref();
+        let message_type = MessageType::deserialize(&mut reader)?;
+        if message_type == MessageType::ObjectDatagram {
+            self.parse_error(
+                ParserErrorCode::ProtocolViolation,
+                "Received OBJECT_DATAGRAM on strea".to_string(),
+            );
+            Err(Error::ErrInvalidMessageType(message_type as u64))
+        } else if message_type == MessageType::ObjectStream
+            || message_type == MessageType::StreamHeaderTrack
+            || message_type == MessageType::StreamHeaderGroup
+        {
+            Ok(0) // ProcessObject(reader, type, fin);
+        } else {
+            let _message = Message::deserialize(&mut self.buffered_message)?;
+            Ok(0)
+        }
     }
 
     fn parse_error(&mut self, error_code: ParserErrorCode, error_reason: String) {
