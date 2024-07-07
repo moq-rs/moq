@@ -60,26 +60,21 @@ impl Deserializer for Bytes {
 
 impl Deserializer for String {
     fn deserialize<B: Buf>(r: &mut B) -> Result<(Self, usize)> {
-        let (size, l) = usize::deserialize(r)?;
-        if r.remaining() < size {
-            return Err(Error::ErrBufferTooShort);
-        }
-
+        let size = r.remaining();
         let mut buf = vec![0; size];
         r.copy_to_slice(&mut buf);
         let str = String::from_utf8(buf)?;
 
-        Ok((str, size + l))
+        Ok((str, size))
     }
 }
 
 impl Serializer for String {
     fn serialize<B: BufMut>(&self, w: &mut B) -> Result<usize> {
-        let l = self.len().serialize(w)?;
         if w.remaining_mut() < self.len() {
             return Err(Error::ErrBufferTooShort);
         }
         w.put(self.as_ref());
-        Ok(l + self.len())
+        Ok(self.len())
     }
 }

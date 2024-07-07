@@ -62,8 +62,11 @@ impl Serializer for Parameters {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.0.len().serialize(w)?;
 
-        for (kind, value) in self.0.iter() {
+        let mut kinds: Vec<u64> = self.0.keys().map(|key| *key).collect();
+        kinds.sort();
+        for kind in kinds {
             l += kind.serialize(w)?;
+            let value = &self.0[&kind];
             l += value.len().serialize(w)?;
             if w.remaining_mut() < value.len() {
                 return Err(Error::ErrBufferTooShort);
