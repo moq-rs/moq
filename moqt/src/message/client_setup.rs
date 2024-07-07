@@ -64,7 +64,7 @@ mod test {
 
     #[test]
     fn test_client_setup() -> Result<()> {
-        let raw_packet: Vec<u8> = vec![
+        let expected_packet: Vec<u8> = vec![
             0x40, 0x40, // type
             0x02, // versions
             192, 0, 0, 0, 255, 0, 0, 1, // Draft01
@@ -74,20 +74,20 @@ mod test {
             0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
         ];
 
-        let client_setup = Message::ClientSetup(ClientSetup {
+        let expected_message = Message::ClientSetup(ClientSetup {
             supported_versions: vec![Version::Draft01, Version::Draft02],
             role: Role::PubSub,
             path: Some("foo".to_string()),
         });
 
-        let mut cursor: Cursor<&[u8]> = Cursor::new(raw_packet.as_ref());
-        let (actual_client_setup, actual_len) = Message::deserialize(&mut cursor)?;
-        assert_eq!(client_setup, actual_client_setup);
-        assert_eq!(raw_packet.len(), actual_len);
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
 
         let mut actual_packet = vec![];
-        let _ = client_setup.serialize(&mut actual_packet)?;
-        assert_eq!(raw_packet, actual_packet);
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
 
         Ok(())
     }

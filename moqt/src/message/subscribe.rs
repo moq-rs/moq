@@ -1,4 +1,4 @@
-use crate::message::FilterType;
+use crate::message::{FilterType};
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Parameters, Result, Serializer};
 use bytes::{Buf, BufMut};
@@ -66,5 +66,51 @@ impl Serializer for Subscribe {
         }
 
         Ok(l)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::{FullSequence, Message};
+    use std::io::Cursor;
+
+    #[test]
+    fn test_subscribe() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x03, 0x01,
+            0x02,  // id and alias
+            0x03, 0x66, 0x6f,
+            0x6f,  // track_namespace = "foo"
+            0x04, 0x61, 0x62, 0x63,
+            0x64,  // track_name = "abcd"
+            0x03,  // Filter type: Absolute Start
+            0x04,  // start_group = 4 (relative previous)
+            0x01,  // start_object = 1 (absolute)
+            // No EndGroup or EndObject
+            0x01,  // 1 parameter
+            0x02, 0x03, 0x62, 0x61,
+            0x72,  // authorization_info = "bar"
+        ];
+
+        let expected_message = Message::Subscribe(Subscribe {
+            subscribe_id: 1,
+            track_alias: 2,
+            track_namespace: "foo".to_string(),
+            track_name: "abcd".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence { group_id: 4, object_id: 1 }),
+            authorization_info: Some("bar".to_string()),
+        });
+
+        /*let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);*/
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
     }
 }
