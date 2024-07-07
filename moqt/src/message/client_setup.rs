@@ -11,24 +11,30 @@ pub struct ClientSetup {
 }
 
 impl Deserializer for ClientSetup {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let number_supported_versions = usize::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (number_supported_versions, mut tl) = usize::deserialize(r)?;
         let mut supported_versions = Vec::with_capacity(number_supported_versions);
         for _ in 0..number_supported_versions {
-            supported_versions.push(Version::deserialize(r)?);
+            let (version, vl) = Version::deserialize(r)?;
+            supported_versions.push(version);
+            tl += vl;
         }
 
-        let mut parameters = Parameters::deserialize(r)?;
+        let (mut parameters, pl) = Parameters::deserialize(r)?;
+        tl += pl;
         let role: Role = parameters
             .remove(ParameterKey::Role)
             .ok_or(Error::ErrMissingParameter)?;
         let path: Option<String> = parameters.remove(ParameterKey::Path);
 
-        Ok(Self {
-            supported_versions,
-            role,
-            path,
-        })
+        Ok((
+            Self {
+                supported_versions,
+                role,
+                path,
+            },
+            tl,
+        ))
     }
 }
 

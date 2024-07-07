@@ -7,9 +7,9 @@ pub struct GoAway {
 }
 
 impl Deserializer for GoAway {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let new_session_uri = String::deserialize(r)?;
-        Ok(Self { new_session_uri })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (new_session_uri, nsul) = String::deserialize(r)?;
+        Ok((Self { new_session_uri }, nsul))
     }
 }
 

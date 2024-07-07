@@ -7,9 +7,9 @@ pub struct UnSubscribe {
 }
 
 impl Deserializer for UnSubscribe {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::deserialize(r)?;
-        Ok(Self { subscribe_id })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
+        Ok((Self { subscribe_id }, sil))
     }
 }
 

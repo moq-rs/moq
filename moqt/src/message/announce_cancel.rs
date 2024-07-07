@@ -7,9 +7,9 @@ pub struct AnnounceCancel {
 }
 
 impl Deserializer for AnnounceCancel {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::deserialize(r)?;
-        Ok(Self { track_namespace })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (track_namespace, tnsl) = String::deserialize(r)?;
+        Ok((Self { track_namespace }, tnsl))
     }
 }
 

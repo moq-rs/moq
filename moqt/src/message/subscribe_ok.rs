@@ -12,24 +12,31 @@ pub struct SubscribeOk {
 }
 
 impl Deserializer for SubscribeOk {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
 
-        let expires = u64::deserialize(r)?;
+        let (expires, el) = u64::deserialize(r)?;
 
-        let largest_group_object = if bool::deserialize(r)? {
-            Some(FullSequence::deserialize(r)?)
+        let (exist, l) = bool::deserialize(r)?;
+        let mut tl = sil + el + l;
+        let largest_group_object = if exist {
+            let (largest_group_object, lgol) = FullSequence::deserialize(r)?;
+            tl += lgol;
+            Some(largest_group_object)
         } else {
             None
         };
 
-        Ok(Self {
-            subscribe_id,
+        Ok((
+            Self {
+                subscribe_id,
 
-            expires,
+                expires,
 
-            largest_group_object,
-        })
+                largest_group_object,
+            },
+            tl,
+        ))
     }
 }
 

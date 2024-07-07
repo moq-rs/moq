@@ -21,17 +21,20 @@ pub struct TrackStatus {
 }
 
 impl Deserializer for TrackStatus {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::deserialize(r)?;
-        let track_name = String::deserialize(r)?;
-        let status_code = u64::deserialize(r)?;
-        let last_group_object = FullSequence::deserialize(r)?;
-        Ok(Self {
-            track_namespace,
-            track_name,
-            status_code,
-            last_group_object,
-        })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (track_namespace, tnsl) = String::deserialize(r)?;
+        let (track_name, tnl) = String::deserialize(r)?;
+        let (status_code, scl) = u64::deserialize(r)?;
+        let (last_group_object, lgol) = FullSequence::deserialize(r)?;
+        Ok((
+            Self {
+                track_namespace,
+                track_name,
+                status_code,
+                last_group_object,
+            },
+            tnsl + tnl + scl + lgol,
+        ))
     }
 }
 

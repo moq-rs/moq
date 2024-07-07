@@ -9,16 +9,19 @@ pub struct Announce {
 }
 
 impl Deserializer for Announce {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (track_namespace, tnsl) = String::deserialize(r)?;
 
-        let mut parameters = Parameters::deserialize(r)?;
+        let (mut parameters, pl) = Parameters::deserialize(r)?;
         let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
-        Ok(Self {
-            track_namespace,
-            authorization_info,
-        })
+        Ok((
+            Self {
+                track_namespace,
+                authorization_info,
+            },
+            tnsl + pl,
+        ))
     }
 }
 

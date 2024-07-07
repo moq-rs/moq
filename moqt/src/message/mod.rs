@@ -97,9 +97,10 @@ impl TryFrom<u64> for MessageType {
 }
 
 impl Deserializer for MessageType {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::deserialize(r)?;
-        v.try_into()
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (v, l) = u64::deserialize(r)?;
+        let t = v.try_into()?;
+        Ok((t, l))
     }
 }
 
@@ -116,13 +117,16 @@ pub struct FullTrackName {
 }
 
 impl Deserializer for FullTrackName {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::deserialize(r)?;
-        let track_name = String::deserialize(r)?;
-        Ok(Self {
-            track_namespace,
-            track_name,
-        })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (track_namespace, tnsl) = String::deserialize(r)?;
+        let (track_name, tnl) = String::deserialize(r)?;
+        Ok((
+            Self {
+                track_namespace,
+                track_name,
+            },
+            tnsl + tnl,
+        ))
     }
 }
 
@@ -150,13 +154,16 @@ impl FullSequence {
 }
 
 impl Deserializer for FullSequence {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let group_id = u64::deserialize(r)?;
-        let object_id = u64::deserialize(r)?;
-        Ok(Self {
-            group_id,
-            object_id,
-        })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (group_id, gil) = u64::deserialize(r)?;
+        let (object_id, oil) = u64::deserialize(r)?;
+        Ok((
+            Self {
+                group_id,
+                object_id,
+            },
+            gil + oil,
+        ))
     }
 }
 
@@ -178,19 +185,19 @@ pub enum FilterType {
 }
 
 impl Deserializer for FilterType {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (v, vl) = u64::deserialize(r)?;
         match v {
-            0x1 => Ok(FilterType::LatestGroup),
-            0x2 => Ok(FilterType::LatestObject),
+            0x1 => Ok((FilterType::LatestGroup, vl)),
+            0x2 => Ok((FilterType::LatestObject, vl)),
             0x3 => {
-                let start = FullSequence::deserialize(r)?;
-                Ok(FilterType::AbsoluteStart(start))
+                let (start, sl) = FullSequence::deserialize(r)?;
+                Ok((FilterType::AbsoluteStart(start), vl + sl))
             }
             0x4 => {
-                let start = FullSequence::deserialize(r)?;
-                let end = FullSequence::deserialize(r)?;
-                Ok(FilterType::AbsoluteRange(start, end))
+                let (start, sl) = FullSequence::deserialize(r)?;
+                let (end, el) = FullSequence::deserialize(r)?;
+                Ok((FilterType::AbsoluteRange(start, end), vl + sl + el))
             }
             _ => Err(Error::ErrInvalidFilterType(v)),
         }
@@ -244,9 +251,10 @@ impl TryFrom<u64> for Version {
 }
 
 impl Deserializer for Version {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::deserialize(r)?;
-        v.try_into()
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (v, vl) = u64::deserialize(r)?;
+        let version = v.try_into()?;
+        Ok((version, vl))
     }
 }
 
@@ -278,9 +286,10 @@ impl TryFrom<u64> for Role {
 }
 
 impl Deserializer for Role {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let v = u64::deserialize(r)?;
-        v.try_into()
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (v, vl) = u64::deserialize(r)?;
+        let role = v.try_into()?;
+        Ok((role, vl))
     }
 }
 
@@ -313,41 +322,77 @@ pub enum Message {
 }
 
 impl Deserializer for Message {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let message_type = MessageType::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (message_type, mtl) = MessageType::deserialize(r)?;
         match message_type {
             MessageType::ObjectStream
             | MessageType::StreamHeaderTrack
             | MessageType::StreamHeaderGroup
             | MessageType::ObjectDatagram => Err(Error::ErrInvalidMessageType(message_type as u64)),
             MessageType::SubscribeUpdate => {
-                Ok(Message::SubscribeUpdate(SubscribeUpdate::deserialize(r)?))
+                let (m, ml) = SubscribeUpdate::deserialize(r)?;
+                Ok((Message::SubscribeUpdate(m), mtl + ml))
             }
-            MessageType::Subscribe => Ok(Message::Subscribe(Subscribe::deserialize(r)?)),
-            MessageType::SubscribeOk => Ok(Message::SubscribeOk(SubscribeOk::deserialize(r)?)),
+            MessageType::Subscribe => {
+                let (m, ml) = Subscribe::deserialize(r)?;
+                Ok((Message::Subscribe(m), mtl + ml))
+            }
+            MessageType::SubscribeOk => {
+                let (m, ml) = SubscribeOk::deserialize(r)?;
+                Ok((Message::SubscribeOk(m), mtl + ml))
+            }
             MessageType::SubscribeError => {
-                Ok(Message::SubscribeError(SubscribeError::deserialize(r)?))
+                let (m, ml) = SubscribeError::deserialize(r)?;
+                Ok((Message::SubscribeError(m), mtl + ml))
             }
-            MessageType::Announce => Ok(Message::Announce(Announce::deserialize(r)?)),
-            MessageType::AnnounceOk => Ok(Message::AnnounceOk(AnnounceOk::deserialize(r)?)),
+            MessageType::Announce => {
+                let (m, ml) = Announce::deserialize(r)?;
+                Ok((Message::Announce(m), mtl + ml))
+            }
+            MessageType::AnnounceOk => {
+                let (m, ml) = AnnounceOk::deserialize(r)?;
+                Ok((Message::AnnounceOk(m), mtl + ml))
+            }
             MessageType::AnnounceError => {
-                Ok(Message::AnnounceError(AnnounceError::deserialize(r)?))
+                let (m, ml) = AnnounceError::deserialize(r)?;
+                Ok((Message::AnnounceError(m), mtl + ml))
             }
-            MessageType::UnAnnounce => Ok(Message::UnAnnounce(UnAnnounce::deserialize(r)?)),
-            MessageType::UnSubscribe => Ok(Message::UnSubscribe(UnSubscribe::deserialize(r)?)),
+            MessageType::UnAnnounce => {
+                let (m, ml) = UnAnnounce::deserialize(r)?;
+                Ok((Message::UnAnnounce(m), mtl + ml))
+            }
+            MessageType::UnSubscribe => {
+                let (m, ml) = UnSubscribe::deserialize(r)?;
+                Ok((Message::UnSubscribe(m), mtl + ml))
+            }
             MessageType::SubscribeDone => {
-                Ok(Message::SubscribeDone(SubscribeDone::deserialize(r)?))
+                let (m, ml) = SubscribeDone::deserialize(r)?;
+                Ok((Message::SubscribeDone(m), mtl + ml))
             }
             MessageType::AnnounceCancel => {
-                Ok(Message::AnnounceCancel(AnnounceCancel::deserialize(r)?))
+                let (m, ml) = AnnounceCancel::deserialize(r)?;
+                Ok((Message::AnnounceCancel(m), mtl + ml))
             }
-            MessageType::TrackStatusRequest => Ok(Message::TrackStatusRequest(
-                TrackStatusRequest::deserialize(r)?,
-            )),
-            MessageType::TrackStatus => Ok(Message::TrackStatus(TrackStatus::deserialize(r)?)),
-            MessageType::GoAway => Ok(Message::GoAway(GoAway::deserialize(r)?)),
-            MessageType::ClientSetup => Ok(Message::ClientSetup(ClientSetup::deserialize(r)?)),
-            MessageType::ServerSetup => Ok(Message::ServerSetup(ServerSetup::deserialize(r)?)),
+            MessageType::TrackStatusRequest => {
+                let (m, ml) = TrackStatusRequest::deserialize(r)?;
+                Ok((Message::TrackStatusRequest(m), mtl + ml))
+            }
+            MessageType::TrackStatus => {
+                let (m, ml) = TrackStatus::deserialize(r)?;
+                Ok((Message::TrackStatus(m), mtl + ml))
+            }
+            MessageType::GoAway => {
+                let (m, ml) = GoAway::deserialize(r)?;
+                Ok((Message::GoAway(m), mtl + ml))
+            }
+            MessageType::ClientSetup => {
+                let (m, ml) = ClientSetup::deserialize(r)?;
+                Ok((Message::ClientSetup(m), mtl + ml))
+            }
+            MessageType::ServerSetup => {
+                let (m, ml) = ServerSetup::deserialize(r)?;
+                Ok((Message::ServerSetup(m), mtl + ml))
+            }
         }
     }
 }

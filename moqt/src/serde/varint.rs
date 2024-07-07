@@ -123,7 +123,7 @@ impl fmt::Display for VarInt {
 }
 
 impl Deserializer for VarInt {
-    fn deserialize<B: Buf>(r: &mut B) -> Result<Self> {
+    fn deserialize<B: Buf>(r: &mut B) -> Result<(Self, usize)> {
         if !r.has_remaining() {
             return Err(Error::ErrUnexpectedEnd);
         }
@@ -131,32 +131,38 @@ impl Deserializer for VarInt {
         buf[0] = r.get_u8();
         let tag = buf[0] >> 6;
         buf[0] &= 0b0011_1111;
-        let x = match tag {
-            0b00 => u64::from(buf[0]),
+        let (x, l) = match tag {
+            0b00 => (u64::from(buf[0]), 0),
             0b01 => {
                 if r.remaining() < 1 {
                     return Err(Error::ErrUnexpectedEnd);
                 }
                 r.copy_to_slice(&mut buf[1..2]);
-                u64::from(u16::from_be_bytes(buf[..2].try_into().unwrap()))
+                (
+                    u64::from(u16::from_be_bytes(buf[..2].try_into().unwrap())),
+                    1,
+                )
             }
             0b10 => {
                 if r.remaining() < 3 {
                     return Err(Error::ErrUnexpectedEnd);
                 }
                 r.copy_to_slice(&mut buf[1..4]);
-                u64::from(u32::from_be_bytes(buf[..4].try_into().unwrap()))
+                (
+                    u64::from(u32::from_be_bytes(buf[..4].try_into().unwrap())),
+                    3,
+                )
             }
             0b11 => {
                 if r.remaining() < 7 {
                     return Err(Error::ErrUnexpectedEnd);
                 }
                 r.copy_to_slice(&mut buf[1..8]);
-                u64::from_be_bytes(buf)
+                (u64::from_be_bytes(buf), 7)
             }
             _ => unreachable!(),
         };
-        Ok(Self(x))
+        Ok((Self(x), 1 + l))
     }
 }
 
@@ -202,8 +208,8 @@ impl Serializer for u64 {
 }
 
 impl Deserializer for u64 {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        VarInt::deserialize(r).map(|v| v.into_inner())
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        VarInt::deserialize(r).map(|v| (v.0.into_inner(), v.1))
     }
 }
 
@@ -216,7 +222,7 @@ impl Serializer for usize {
 }
 
 impl Deserializer for usize {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        VarInt::deserialize(r).map(|v| v.into_inner() as usize)
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        VarInt::deserialize(r).map(|v| (v.0.into_inner() as usize, v.1))
     }
 }

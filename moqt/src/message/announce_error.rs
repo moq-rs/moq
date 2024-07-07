@@ -22,15 +22,18 @@ pub struct AnnounceError {
 }
 
 impl Deserializer for AnnounceError {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::deserialize(r)?;
-        let error_code = u64::deserialize(r)?;
-        let reason_phrase = String::deserialize(r)?;
-        Ok(Self {
-            track_namespace,
-            error_code,
-            reason_phrase,
-        })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (track_namespace, tnsl) = String::deserialize(r)?;
+        let (error_code, ecl) = u64::deserialize(r)?;
+        let (reason_phrase, rpl) = String::deserialize(r)?;
+        Ok((
+            Self {
+                track_namespace,
+                error_code,
+                reason_phrase,
+            },
+            tnsl + ecl + rpl,
+        ))
     }
 }
 

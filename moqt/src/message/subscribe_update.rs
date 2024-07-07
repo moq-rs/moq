@@ -2,6 +2,7 @@
 
 use crate::message::FullSequence;
 use crate::serde::parameters::ParameterKey;
+use crate::Result;
 use crate::{Deserializer, Parameters, Serializer};
 use bytes::{Buf, BufMut};
 
@@ -16,28 +17,31 @@ pub struct SubscribeUpdate {
 }
 
 impl Deserializer for SubscribeUpdate {
-    fn deserialize<R: Buf>(r: &mut R) -> crate::Result<Self> {
-        let subscribe_id = u64::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
 
-        let start_group_object = FullSequence::deserialize(r)?;
-        let end_group_object = FullSequence::deserialize(r)?;
+        let (start_group_object, sgol) = FullSequence::deserialize(r)?;
+        let (end_group_object, egol) = FullSequence::deserialize(r)?;
 
-        let mut parameters = Parameters::deserialize(r)?;
+        let (mut parameters, pl) = Parameters::deserialize(r)?;
         let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
-        Ok(Self {
-            subscribe_id,
+        Ok((
+            Self {
+                subscribe_id,
 
-            start_group_object,
-            end_group_object,
+                start_group_object,
+                end_group_object,
 
-            authorization_info,
-        })
+                authorization_info,
+            },
+            sil + sgol + egol + pl,
+        ))
     }
 }
 
 impl Serializer for SubscribeUpdate {
-    fn serialize<W: BufMut>(&self, w: &mut W) -> crate::Result<usize> {
+    fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.subscribe_id.serialize(w)?;
 
         l += self.start_group_object.serialize(w)?;

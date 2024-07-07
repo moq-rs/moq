@@ -218,8 +218,8 @@ impl MessageParser {
                               object_metadata_->forwarding_preference),
                           fin);*/
         }
-        let mut reader = self.buffered_message.as_ref();
-        let message_type = MessageType::deserialize(&mut reader)?;
+        let mut mt_reader = self.buffered_message.as_ref();
+        let (message_type, _) = MessageType::deserialize(&mut mt_reader)?;
         if message_type == MessageType::ObjectDatagram {
             self.parse_error(
                 ParserErrorCode::ProtocolViolation,
@@ -232,8 +232,9 @@ impl MessageParser {
         {
             Ok(0) // ProcessObject(reader, type, fin);
         } else {
-            let _message = Message::deserialize(&mut self.buffered_message)?;
-            Ok(0)
+            let mut msg_reader = self.buffered_message.as_ref();
+            let (_message, message_len) = Message::deserialize(&mut msg_reader)?;
+            Ok(message_len)
         }
     }
 

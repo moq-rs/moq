@@ -20,22 +20,25 @@ pub struct SubscribeError {
 }
 
 impl Deserializer for SubscribeError {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
 
-        let status_code = u64::deserialize(r)?;
-        let reason_phrase = String::deserialize(r)?;
+        let (status_code, scl) = u64::deserialize(r)?;
+        let (reason_phrase, rpl) = String::deserialize(r)?;
 
-        let track_alias = u64::deserialize(r)?;
+        let (track_alias, tal) = u64::deserialize(r)?;
 
-        Ok(Self {
-            subscribe_id,
+        Ok((
+            Self {
+                subscribe_id,
 
-            error_code: status_code,
-            reason_phrase,
+                error_code: status_code,
+                reason_phrase,
 
-            track_alias,
-        })
+                track_alias,
+            },
+            sil + scl + rpl + tal,
+        ))
     }
 }
 

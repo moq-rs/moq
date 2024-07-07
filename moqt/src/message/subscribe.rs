@@ -17,29 +17,32 @@ pub struct Subscribe {
 }
 
 impl Deserializer for Subscribe {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
 
-        let track_alias = u64::deserialize(r)?;
-        let track_namespace = String::deserialize(r)?;
-        let track_name = String::deserialize(r)?;
+        let (track_alias, tal) = u64::deserialize(r)?;
+        let (track_namespace, tnsl) = String::deserialize(r)?;
+        let (track_name, tnl) = String::deserialize(r)?;
 
-        let filter_type = FilterType::deserialize(r)?;
+        let (filter_type, ftl) = FilterType::deserialize(r)?;
 
-        let mut parameters = Parameters::deserialize(r)?;
+        let (mut parameters, pl) = Parameters::deserialize(r)?;
         let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
 
-        Ok(Self {
-            subscribe_id,
+        Ok((
+            Self {
+                subscribe_id,
 
-            track_alias,
-            track_namespace,
-            track_name,
+                track_alias,
+                track_namespace,
+                track_name,
 
-            filter_type,
+                filter_type,
 
-            authorization_info,
-        })
+                authorization_info,
+            },
+            sil + tal + tnsl + tnl + ftl + pl,
+        ))
     }
 }
 

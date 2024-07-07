@@ -29,18 +29,18 @@ impl TryFrom<u64> for ParameterKey {
 pub struct Parameters(pub HashMap<u64, Vec<u8>>);
 
 impl Deserializer for Parameters {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let mut params = HashMap::new();
 
         // I hate this encoding so much; let me encode my role and get on with my life.
-        let count = u64::deserialize(r)?;
+        let (count, mut tl) = u64::deserialize(r)?;
         for _ in 0..count {
-            let kind = u64::deserialize(r)?;
+            let (kind, kl) = u64::deserialize(r)?;
             if params.contains_key(&kind) {
                 return Err(Error::ErrDuplicateParameter);
             }
 
-            let size = usize::deserialize(r)?;
+            let (size, sl) = usize::deserialize(r)?;
             if r.remaining() < size {
                 return Err(Error::ErrBufferTooShort);
             }
@@ -51,9 +51,10 @@ impl Deserializer for Parameters {
             r.copy_to_slice(&mut buf);
 
             params.insert(kind, buf);
+            tl += kl + sl + size;
         }
 
-        Ok(Parameters(params))
+        Ok((Parameters(params), tl))
     }
 }
 
@@ -97,7 +98,7 @@ impl Parameters {
     pub fn remove<P: Deserializer>(&mut self, key: ParameterKey) -> Option<P> {
         if let Some(value) = self.0.remove(&(key as u64)) {
             let mut cursor = Cursor::new(value);
-            P::deserialize(&mut cursor).ok()
+            P::deserialize(&mut cursor).ok().map(|v| v.0)
         } else {
             None
         }

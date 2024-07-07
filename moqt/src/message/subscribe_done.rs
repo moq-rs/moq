@@ -25,26 +25,33 @@ pub struct SubscribeDone {
 }
 
 impl Deserializer for SubscribeDone {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let subscribe_id = u64::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
 
-        let status_code = u64::deserialize(r)?;
-        let reason_phrase = String::deserialize(r)?;
+        let (status_code, scl) = u64::deserialize(r)?;
+        let (reason_phrase, rpl) = String::deserialize(r)?;
 
-        let group_object_pair = if bool::deserialize(r)? {
-            Some(FullSequence::deserialize(r)?)
+        let (exist, el) = bool::deserialize(r)?;
+        let mut tl = sil + scl + rpl + el;
+        let final_group_object = if exist {
+            let (final_group_object, fgol) = FullSequence::deserialize(r)?;
+            tl += fgol;
+            Some(final_group_object)
         } else {
             None
         };
 
-        Ok(Self {
-            subscribe_id,
+        Ok((
+            Self {
+                subscribe_id,
 
-            status_code,
-            reason_phrase,
+                status_code,
+                reason_phrase,
 
-            final_group_object: group_object_pair,
-        })
+                final_group_object,
+            },
+            tl,
+        ))
     }
 }
 

@@ -5,7 +5,7 @@ pub mod parameters;
 pub mod varint;
 
 pub trait Deserializer {
-    fn deserialize<B>(r: &mut B) -> Result<Self>
+    fn deserialize<B>(r: &mut B) -> Result<(Self, usize)>
     where
         Self: Sized,
         B: Buf;
@@ -27,14 +27,14 @@ impl Serializer for bool {
 }
 
 impl Deserializer for bool {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         if !r.has_remaining() {
             return Err(Error::ErrBufferTooShort);
         }
         let b = r.get_u8();
         match b {
-            0 => Ok(false),
-            1 => Ok(true),
+            0 => Ok((false, 1)),
+            1 => Ok((true, 1)),
             _ => Err(Error::ErrInvalidBooleanValue(b)),
         }
     }
@@ -52,14 +52,15 @@ impl Serializer for Bytes {
 }
 
 impl Deserializer for Bytes {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        Ok(r.copy_to_bytes(r.remaining()))
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let l = r.remaining();
+        Ok((r.copy_to_bytes(l), l))
     }
 }
 
 impl Deserializer for String {
-    fn deserialize<B: Buf>(r: &mut B) -> Result<Self> {
-        let size = usize::deserialize(r)?;
+    fn deserialize<B: Buf>(r: &mut B) -> Result<(Self, usize)> {
+        let (size, l) = usize::deserialize(r)?;
         if r.remaining() < size {
             return Err(Error::ErrBufferTooShort);
         }
@@ -68,7 +69,7 @@ impl Deserializer for String {
         r.copy_to_slice(&mut buf);
         let str = String::from_utf8(buf)?;
 
-        Ok(str)
+        Ok((str, size + l))
     }
 }
 

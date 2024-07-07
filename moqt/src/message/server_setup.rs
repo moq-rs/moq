@@ -10,18 +10,21 @@ pub struct ServerSetup {
 }
 
 impl Deserializer for ServerSetup {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let supported_version = Version::deserialize(r)?;
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (supported_version, svl) = Version::deserialize(r)?;
 
-        let mut parameters = Parameters::deserialize(r)?;
+        let (mut parameters, pl) = Parameters::deserialize(r)?;
         let role: Role = parameters
             .remove(ParameterKey::Role)
             .ok_or(Error::ErrMissingParameter)?;
 
-        Ok(Self {
-            supported_version,
-            role,
-        })
+        Ok((
+            Self {
+                supported_version,
+                role,
+            },
+            svl + pl,
+        ))
     }
 }
 

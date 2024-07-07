@@ -8,13 +8,16 @@ pub struct TrackStatusRequest {
 }
 
 impl Deserializer for TrackStatusRequest {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
-        let track_namespace = String::deserialize(r)?;
-        let track_name = String::deserialize(r)?;
-        Ok(Self {
-            track_namespace,
-            track_name,
-        })
+    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
+        let (track_namespace, tnsl) = String::deserialize(r)?;
+        let (track_name, tnl) = String::deserialize(r)?;
+        Ok((
+            Self {
+                track_namespace,
+                track_name,
+            },
+            tnsl + tnl,
+        ))
     }
 }
 
