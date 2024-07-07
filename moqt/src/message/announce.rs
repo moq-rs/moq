@@ -41,3 +41,13 @@ impl Serializer for Announce {
         Ok(l)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_announce() -> Result<()> {
+        Ok(())
+    }
+}

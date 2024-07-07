@@ -24,6 +24,7 @@ pub mod announce_error;
 pub mod announce_ok;
 pub mod client_setup;
 pub mod go_away;
+pub mod message_parser;
 pub mod object;
 pub mod server_setup;
 pub mod subscribe;
@@ -64,6 +65,19 @@ pub enum MessageType {
     ServerSetup = 0x41,
     StreamHeaderTrack = 0x50,
     StreamHeaderGroup = 0x51,
+}
+
+impl MessageType {
+    pub fn is_object_message(&self) -> bool {
+        *self == MessageType::ObjectStream
+            || *self == MessageType::ObjectDatagram
+            || *self == MessageType::StreamHeaderTrack
+            || *self == MessageType::StreamHeaderGroup
+    }
+
+    pub fn is_object_without_payload_length(&self) -> bool {
+        *self == MessageType::ObjectStream || *self == MessageType::ObjectDatagram
+    }
 }
 
 impl TryFrom<u64> for MessageType {
@@ -484,5 +498,15 @@ impl Serializer for Message {
                 Ok(l)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_message() -> Result<()> {
+        Ok(())
     }
 }

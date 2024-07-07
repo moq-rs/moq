@@ -1,5 +1,5 @@
 use crate::handler::Handler;
-use crate::session::message_parser::MessageParserEvent;
+use crate::message::message_parser::MessageParserEvent;
 use crate::session::session_parameters::{Perspective, SessionParameters};
 use bytes::BytesMut;
 use retty::transport::Transmit;
