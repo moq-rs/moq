@@ -1,8 +1,3 @@
-pub mod datagram;
-pub mod group;
-pub mod stream;
-pub mod track;
-
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ObjectForwardingPreference {
     #[default]
@@ -34,4 +29,19 @@ impl From<u64> for ObjectStatus {
             _ => Self::Invalid,
         }
     }
+}
+
+/// The data contained in every Object message, although the message type
+/// implies some of the values. |payload_length| has no value if the length
+/// is unknown (because it runs to the end of the stream.)
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+pub struct ObjectHeader {
+    pub subscribe_id: u64,
+    pub track_alias: u64,
+    pub group_id: u64,
+    pub object_id: u64,
+    pub object_send_order: u64,
+    pub object_status: ObjectStatus,
+    pub object_forwarding_preference: ObjectForwardingPreference,
+    pub object_payload_length: Option<u64>,
 }

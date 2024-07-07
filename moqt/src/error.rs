@@ -6,17 +6,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("unauthorized")]
-    ErrUnauthorized,
-    #[error("protocol violation")]
-    ErrProtocolViolation,
-    #[error("duplicate track alias")]
-    ErrDuplicateTrackAlias,
-    #[error("parameter length mismatch")]
-    ErrParameterLengthMismatch,
-    #[error("go away timeout")]
-    ErrGoawayTimeout,
-
     #[error("value too large for varint encoding")]
     ErrVarIntBoundsExceeded,
     #[error("unexpected buffer end")]

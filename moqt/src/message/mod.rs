@@ -4,10 +4,7 @@ use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::go_away::GoAway;
-use crate::message::object::datagram::DatagramHeader;
-use crate::message::object::group::GroupHeader;
-use crate::message::object::stream::StreamHeader;
-use crate::message::object::track::TrackHeader;
+use crate::message::object::ObjectHeader;
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
@@ -19,7 +16,7 @@ use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::{Deserializer, Error, Result, Serializer};
-use bytes::{Buf, BufMut};
+use bytes::{Buf, BufMut, Bytes};
 
 pub mod announce;
 pub mod announce_cancel;
@@ -295,8 +292,8 @@ impl Serializer for Role {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Message {
-    ObjectStream(StreamHeader),
-    ObjectDatagram(DatagramHeader),
+    ObjectStream(ObjectHeader, Bytes, bool),
+    ObjectDatagram(ObjectHeader, Bytes),
     SubscribeUpdate(SubscribeUpdate),
     Subscribe(Subscribe),
     SubscribeOk(SubscribeOk),
@@ -313,18 +310,16 @@ pub enum Message {
     GoAway(GoAway),
     ClientSetup(ClientSetup),
     ServerSetup(ServerSetup),
-    StreamHeaderTrack(TrackHeader),
-    StreamHeaderGroup(GroupHeader),
 }
 
 impl Deserializer for Message {
     fn deserialize<R: Buf>(r: &mut R) -> Result<Self> {
         let message_type = MessageType::deserialize(r)?;
         match message_type {
-            MessageType::ObjectStream => Ok(Message::ObjectStream(StreamHeader::deserialize(r)?)),
-            MessageType::ObjectDatagram => {
-                Ok(Message::ObjectDatagram(DatagramHeader::deserialize(r)?))
-            }
+            MessageType::ObjectStream
+            | MessageType::StreamHeaderTrack
+            | MessageType::StreamHeaderGroup
+            | MessageType::ObjectDatagram => Err(Error::ErrInvalidMessageType(message_type as u64)),
             MessageType::SubscribeUpdate => {
                 Ok(Message::SubscribeUpdate(SubscribeUpdate::deserialize(r)?))
             }
@@ -353,12 +348,6 @@ impl Deserializer for Message {
             MessageType::GoAway => Ok(Message::GoAway(GoAway::deserialize(r)?)),
             MessageType::ClientSetup => Ok(Message::ClientSetup(ClientSetup::deserialize(r)?)),
             MessageType::ServerSetup => Ok(Message::ServerSetup(ServerSetup::deserialize(r)?)),
-            MessageType::StreamHeaderTrack => {
-                Ok(Message::StreamHeaderTrack(TrackHeader::deserialize(r)?))
-            }
-            MessageType::StreamHeaderGroup => {
-                Ok(Message::StreamHeaderGroup(GroupHeader::deserialize(r)?))
-            }
         }
     }
 }
@@ -366,15 +355,8 @@ impl Deserializer for Message {
 impl Serializer for Message {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         match self {
-            Message::ObjectStream(stream_header) => {
-                let mut l = MessageType::ObjectStream.serialize(w)?;
-                l += stream_header.serialize(w)?;
-                Ok(l)
-            }
-            Message::ObjectDatagram(datagram_header) => {
-                let mut l = MessageType::ObjectDatagram.serialize(w)?;
-                l += datagram_header.serialize(w)?;
-                Ok(l)
+            Message::ObjectStream(_, _, _) | Message::ObjectDatagram(_, _) => {
+                Err(Error::ErrInvalidMessageType(0))
             }
             Message::SubscribeUpdate(subscribe_update) => {
                 let mut l = MessageType::SubscribeUpdate.serialize(w)?;
@@ -454,16 +436,6 @@ impl Serializer for Message {
             Message::ServerSetup(server_setup) => {
                 let mut l = MessageType::ServerSetup.serialize(w)?;
                 l += server_setup.serialize(w)?;
-                Ok(l)
-            }
-            Message::StreamHeaderTrack(track_header) => {
-                let mut l = MessageType::StreamHeaderTrack.serialize(w)?;
-                l += track_header.serialize(w)?;
-                Ok(l)
-            }
-            Message::StreamHeaderGroup(group_header) => {
-                let mut l = MessageType::StreamHeaderGroup.serialize(w)?;
-                l += group_header.serialize(w)?;
                 Ok(l)
             }
         }

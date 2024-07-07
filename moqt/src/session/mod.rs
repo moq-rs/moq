@@ -9,6 +9,7 @@ use crate::StreamId;
 use std::collections::{HashMap, HashSet};
 
 mod local_track;
+mod message_parser;
 mod remote_track;
 mod session_parameters;
 mod stream;
