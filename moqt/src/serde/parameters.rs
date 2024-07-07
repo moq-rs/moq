@@ -45,10 +45,24 @@ impl Deserializer for Parameters {
                 return Err(Error::ErrBufferTooShort);
             }
 
-            // Don't allocate the entire requested size to avoid a possible attack
+            //FIXME: Don't allocate the entire requested size to avoid a possible attack
             // Instead, we allocate up to 1024 and keep appending as we read further.
-            let mut buf = vec![0; size];
-            r.copy_to_slice(&mut buf);
+            let buf = if kind == ParameterKey::Path as u64
+                || kind == ParameterKey::AuthorizationInfo as u64
+            {
+                let mut size_buf = vec![];
+                let size_buf_len = size.serialize(&mut size_buf)?;
+                assert_eq!(size_buf_len, sl);
+
+                let mut buf = vec![0; size + sl];
+                buf[..sl].copy_from_slice(&size_buf);
+                r.copy_to_slice(&mut buf[sl..]);
+                buf
+            } else {
+                let mut buf = vec![0; size];
+                r.copy_to_slice(&mut buf);
+                buf
+            };
 
             params.insert(kind, buf);
             tl += kl + sl + size;
@@ -62,12 +76,17 @@ impl Serializer for Parameters {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         let mut l = self.0.len().serialize(w)?;
 
+        #[allow(clippy::map_clone)]
         let mut kinds: Vec<u64> = self.0.keys().map(|key| *key).collect();
         kinds.sort();
         for kind in kinds {
             l += kind.serialize(w)?;
             let value = &self.0[&kind];
-            l += value.len().serialize(w)?;
+            if !(kind == ParameterKey::Path as u64
+                || kind == ParameterKey::AuthorizationInfo as u64)
+            {
+                l += value.len().serialize(w)?;
+            }
             if w.remaining_mut() < value.len() {
                 return Err(Error::ErrBufferTooShort);
             }

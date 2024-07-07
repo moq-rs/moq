@@ -64,30 +64,48 @@ mod test {
 
     #[test]
     fn test_client_setup() -> Result<()> {
-        let expected_packet: Vec<u8> = vec![
-            0x40, 0x40, // type
-            0x02, // versions
-            192, 0, 0, 0, 255, 0, 0, 1, // Draft01
-            192, 0, 0, 0, 255, 0, 0, 2,    // Draft02
-            0x02, // 2 parameters
-            0x00, 0x01, 0x03, // role = PubSub
-            0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
+        let tests: Vec<(Vec<u8>, Message)> = vec![
+            (
+                vec![
+                    0x40, 0x40, // type
+                    0x02, // versions
+                    192, 0, 0, 0, 255, 0, 0, 1, // Draft01
+                    192, 0, 0, 0, 255, 0, 0, 2,    // Draft02
+                    0x02, // 2 parameters
+                    0x00, 0x01, 0x03, // role = PubSub
+                    0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
+                ],
+                Message::ClientSetup(ClientSetup {
+                    supported_versions: vec![Version::Draft01, Version::Draft02],
+                    role: Role::PubSub,
+                    path: Some("foo".to_string()),
+                }),
+            ),
+            (
+                vec![
+                    0x40, 0x40, 0x01, 0xc0, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00,
+                    0x02, // 2 parameters
+                    0x00, 0x01, 0x03, // role = PubSub
+                    0x01, 0x01, 0x65, // path = "e"
+                ],
+                Message::ClientSetup(ClientSetup {
+                    supported_versions: vec![Version::Draft00],
+                    role: Role::PubSub,
+                    path: Some("e".to_string()),
+                }),
+            ),
         ];
 
-        let expected_message = Message::ClientSetup(ClientSetup {
-            supported_versions: vec![Version::Draft01, Version::Draft02],
-            role: Role::PubSub,
-            path: Some("foo".to_string()),
-        });
+        for (expected_packet, expected_message) in tests {
+            let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+            let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+            assert_eq!(expected_message, actual_message);
+            assert_eq!(expected_packet.len(), actual_len);
 
-        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
-        assert_eq!(expected_message, actual_message);
-        assert_eq!(expected_packet.len(), actual_len);
-
-        let mut actual_packet = vec![];
-        let _ = expected_message.serialize(&mut actual_packet)?;
-        assert_eq!(expected_packet, actual_packet);
+            let mut actual_packet = vec![];
+            let _ = expected_message.serialize(&mut actual_packet)?;
+            assert_eq!(expected_packet, actual_packet);
+        }
 
         Ok(())
     }
