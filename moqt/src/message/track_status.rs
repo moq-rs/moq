@@ -47,3 +47,40 @@ impl Serializer for TrackStatus {
         Ok(l)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::Message;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_track_status() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x0e, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+            0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+            0x00, 0x0c, 0x14, // status, last_group, last_object
+        ];
+
+        let expected_message = Message::TrackStatus(TrackStatus {
+            track_namespace: "foo".to_string(),
+            track_name: "abcd".to_string(),
+            status_code: TrackStatusCode::InProgress as u64,
+            last_group_object: FullSequence {
+                group_id: 12,
+                object_id: 20,
+            },
+        });
+
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
+    }
+}
