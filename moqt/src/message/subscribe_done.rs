@@ -71,3 +71,40 @@ impl Serializer for SubscribeDone {
         Ok(l)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::Message;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_subscribe_done() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x0b, 0x02, 0x03, // subscribe_id = 2, error_code = 3,
+            0x02, 0x68, 0x69, // reason_phrase = "hi"
+            0x01, 0x08, 0x0c, // final_id = (8,12)
+        ];
+
+        let expected_message = Message::SubscribeDone(SubscribeDone {
+            subscribe_id: 2,
+            status_code: 3,
+            reason_phrase: "hi".to_string(),
+            final_group_object: Some(FullSequence {
+                group_id: 8,
+                object_id: 12,
+            }),
+        });
+
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
+    }
+}

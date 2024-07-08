@@ -18,3 +18,30 @@ impl Serializer for UnSubscribe {
         self.subscribe_id.serialize(w)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::Message;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_unsubscribe() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x0a, 0x03, // subscribe_id = 3
+        ];
+
+        let expected_message = Message::UnSubscribe(UnSubscribe { subscribe_id: 3 });
+
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
+    }
+}

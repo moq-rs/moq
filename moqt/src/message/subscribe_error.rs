@@ -54,3 +54,38 @@ impl Serializer for SubscribeError {
         Ok(l)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::Message;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_subscribe_error() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x05, 0x02, // subscribe_id = 2
+            0x01, // error_code = 1
+            0x03, 0x62, 0x61, 0x72, // reason_phrase = "bar"
+            0x04, // track_alias = 4,
+        ];
+
+        let expected_message = Message::SubscribeError(SubscribeError {
+            subscribe_id: 2,
+            error_code: SubscribeErrorCode::InvalidRange as u64,
+            reason_phrase: "bar".to_string(),
+            track_alias: 4,
+        });
+
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
+    }
+}

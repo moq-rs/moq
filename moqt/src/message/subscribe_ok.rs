@@ -55,3 +55,38 @@ impl Serializer for SubscribeOk {
         Ok(l)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::{FullSequence, Message};
+    use std::io::Cursor;
+
+    #[test]
+    fn test_subscribe_ok() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x04, 0x01, 0x03, // subscribe_id = 1, expires = 3
+            0x01, 0x0c, 0x14, // largest_group_id = 12, largest_object_id = 20,
+        ];
+
+        let expected_message = Message::SubscribeOk(SubscribeOk {
+            subscribe_id: 1,
+            expires: 3,
+            largest_group_object: Some(FullSequence {
+                group_id: 12,
+                object_id: 20,
+            }),
+        });
+
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
+    }
+}
