@@ -199,11 +199,16 @@ impl MessageParser {
         }
     }
 
-    /// Provide a separate path for datagrams. Returns the payload bytes, or empty
-    /// string_view on error. The caller provides the whole datagram in |data|.
-    /// The function puts the object metadata in |object_metadata|.
-    pub fn process_datagram<R: Buf>(_r: &mut R, _object_metadata: &ObjectHeader) -> Bytes {
-        Bytes::new()
+    /// Provide a separate path for datagrams. Returns the ObjectHeader and payload bytes
+    pub fn process_datagram<R: Buf>(r: &mut R) -> Result<(ObjectHeader, Bytes)> {
+        let (message_type, _) = MessageType::deserialize(r)?;
+        if message_type != MessageType::ObjectDatagram {
+            return Err(Error::ErrInvalidMessageType(message_type as u64));
+        }
+
+        let (object_header, _) = MessageParser::parse_object_header(r, message_type)?;
+
+        Ok((object_header, r.copy_to_bytes(r.remaining())))
     }
 
     pub fn poll_event(&mut self) -> Option<MessageParserEvent> {
