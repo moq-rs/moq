@@ -1,3 +1,5 @@
+use crate::message::MessageType;
+
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ObjectForwardingPreference {
     #[default]
@@ -5,6 +7,17 @@ pub enum ObjectForwardingPreference {
     Datagram,
     Track,
     Group,
+}
+
+impl ObjectForwardingPreference {
+    pub(crate) fn get_message_type(&self) -> MessageType {
+        match *self {
+            ObjectForwardingPreference::Object => MessageType::ObjectStream,
+            ObjectForwardingPreference::Datagram => MessageType::ObjectDatagram,
+            ObjectForwardingPreference::Track => MessageType::StreamHeaderTrack,
+            ObjectForwardingPreference::Group => MessageType::StreamHeaderGroup,
+        }
+    }
 }
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]

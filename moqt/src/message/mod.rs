@@ -4,7 +4,7 @@ use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::go_away::GoAway;
-use crate::message::object::ObjectHeader;
+use crate::message::object::{ObjectForwardingPreference, ObjectHeader};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
@@ -77,6 +77,16 @@ impl MessageType {
 
     pub fn is_object_without_payload_length(&self) -> bool {
         *self == MessageType::ObjectStream || *self == MessageType::ObjectDatagram
+    }
+
+    pub fn get_object_forwarding_preference(&self) -> Result<ObjectForwardingPreference> {
+        match *self {
+            MessageType::ObjectStream => Ok(ObjectForwardingPreference::Object),
+            MessageType::ObjectDatagram => Ok(ObjectForwardingPreference::Datagram),
+            MessageType::StreamHeaderTrack => Ok(ObjectForwardingPreference::Track),
+            MessageType::StreamHeaderGroup => Ok(ObjectForwardingPreference::Group),
+            _ => Err(Error::ErrInvalidMessageType(*self as u64)),
+        }
     }
 }
 

@@ -34,6 +34,8 @@ pub enum Error {
     ErrTrackGroupForwardPreferenceRequiresLength,
     #[error("object status must be kNormal if payload is non-empty")]
     ErrNonEmptyPayloadMustBeWithNormalObjectStatus,
+    #[error("protocol violation: {0}")]
+    ErrProtocolViolation(String),
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),

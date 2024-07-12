@@ -210,13 +210,17 @@ impl MessageParser {
         self.parser_events.pop_front()
     }
 
-    fn process_message(&mut self, _fin: bool) -> Result<usize> {
+    fn process_message(&mut self, fin: bool) -> Result<usize> {
         if self.object_stream_initialized() && !self.object_payload_in_progress() {
             // This is a follow-on object in a stream.
-            return Ok(0); /*& ProcessObject(reader,
-                          GetMessageTypeForForwardingPreference(
-                              object_metadata_->forwarding_preference),
-                          fin);*/
+            if let Some(object_metadata) = self.object_metadata.as_ref() {
+                return self.process_object(
+                    object_metadata
+                        .object_forwarding_preference
+                        .get_message_type(),
+                    fin,
+                );
+            }
         }
         let mut mt_reader = self.buffered_message.as_ref();
         let (message_type, _) = MessageType::deserialize(&mut mt_reader)?;
@@ -230,12 +234,197 @@ impl MessageParser {
             || message_type == MessageType::StreamHeaderTrack
             || message_type == MessageType::StreamHeaderGroup
         {
-            Ok(0) // ProcessObject(reader, type, fin);
+            self.process_object(message_type, fin)
         } else {
             let mut msg_reader = self.buffered_message.as_ref();
             let (_message, message_len) = Message::deserialize(&mut msg_reader)?;
             Ok(message_len)
         }
+    }
+
+    fn process_object(&mut self, message_type: MessageType, fin: bool) -> Result<usize> {
+        let mut processed_data = 0;
+        assert!(!self.object_payload_in_progress());
+        if !self.object_stream_initialized() {
+            let mut oh_reader = self.buffered_message.as_ref();
+            let (object_metadata, obl) =
+                MessageParser::parse_object_header(&mut oh_reader, message_type)?;
+            self.object_metadata = Some(object_metadata);
+            processed_data = obl;
+        }
+
+        let mut payload_reader = &self.buffered_message.as_ref()[processed_data..];
+        match MessageParser::process_object_payload(
+            &mut self.object_metadata,
+            &mut self.payload_length_remaining,
+            &mut payload_reader,
+            message_type,
+            fin,
+        ) {
+            Ok(prl) => {
+                processed_data += prl;
+            }
+            Err(err) => {
+                if let Error::ErrProtocolViolation(reason) = &err {
+                    self.parse_error(ParserErrorCode::ProtocolViolation, reason.to_string());
+                }
+                return Err(err);
+            }
+        }
+
+        Ok(processed_data)
+    }
+
+    fn parse_object_header<R: Buf>(
+        r: &mut R,
+        message_type: MessageType,
+    ) -> Result<(ObjectHeader, usize)> {
+        let (subscribe_id, sil) = u64::deserialize(r)?;
+        let (track_alias, tal) = u64::deserialize(r)?;
+        let (group_id, gil) = if message_type != MessageType::StreamHeaderTrack {
+            u64::deserialize(r)?
+        } else {
+            (0, 0)
+        };
+        let (object_id, oil) = if message_type != MessageType::StreamHeaderTrack
+            && message_type != MessageType::StreamHeaderGroup
+        {
+            u64::deserialize(r)?
+        } else {
+            (0, 0)
+        };
+        let (object_send_order, osol) = u64::deserialize(r)?;
+        let (status, osl) = if message_type == MessageType::ObjectStream
+            || message_type == MessageType::ObjectDatagram
+        {
+            u64::deserialize(r)?
+        } else {
+            (0, 0)
+        };
+        let object_status: ObjectStatus = status.into();
+        let object_forwarding_preference: ObjectForwardingPreference =
+            message_type.get_object_forwarding_preference()?;
+
+        Ok((
+            ObjectHeader {
+                subscribe_id,
+                track_alias,
+                group_id,
+                object_id,
+                object_send_order,
+                object_status,
+                object_forwarding_preference,
+                object_payload_length: None,
+            },
+            sil + tal + gil + oil + osol + osl,
+        ))
+    }
+
+    fn process_object_payload<R: Buf>(
+        object_header: &mut Option<ObjectHeader>,
+        payload_length_remaining: &mut usize,
+        r: &mut R,
+        message_type: MessageType,
+        fin: bool,
+    ) -> Result<usize> {
+        // At this point, enough data has been processed to store in object_metadata_,
+        // even if there's nothing else in the buffer.
+        assert!(*payload_length_remaining == 0);
+        let mut total_len = 0;
+        match message_type {
+            MessageType::StreamHeaderTrack => {
+                let (group_id, gil) = u64::deserialize(r)?;
+                total_len += gil;
+                if let Some(object_metadata) = object_header.as_mut() {
+                    object_metadata.group_id = group_id;
+                }
+            }
+            MessageType::StreamHeaderGroup => {
+                let (group_id, gil) = u64::deserialize(r)?;
+                total_len += gil;
+
+                let (object_id, oil) = u64::deserialize(r)?;
+                total_len += oil;
+
+                let (object_payload_length, opl) = u64::deserialize(r)?;
+                total_len += opl;
+
+                let mut status = 0; // Defaults to kNormal.
+                if object_payload_length == 0 {
+                    let sl;
+                    (status, sl) = u64::deserialize(r)?;
+                    total_len += sl;
+                }
+
+                if let Some(object_metadata) = object_header.as_mut() {
+                    object_metadata.group_id = group_id;
+                    object_metadata.object_id = object_id;
+                    object_metadata.object_payload_length = Some(object_payload_length);
+                    object_metadata.object_status = status.into();
+                }
+            }
+            _ => {}
+        }
+
+        if let Some(object_metadata) = object_header.as_ref() {
+            if object_metadata.object_status == ObjectStatus::Invalid {
+                return Err(Error::ErrProtocolViolation(
+                    "Invalid object status".to_string(),
+                ));
+            }
+            if object_metadata.object_status != ObjectStatus::Normal {
+                // It is impossible to express an explicit length with this status.
+                if (message_type == MessageType::ObjectStream
+                    || message_type == MessageType::ObjectDatagram)
+                    && r.has_remaining()
+                {
+                    // There is additional data in the stream/datagram, which is an error.
+                    return Err(Error::ErrProtocolViolation(
+                        "Object with non-normal status has payload".to_string(),
+                    ));
+                }
+                //TODO: visitor_.OnObjectMessage(*object_metadata_, "", true);
+                return Ok(total_len);
+            }
+
+            let has_length = object_metadata.object_payload_length.is_some();
+            let payload_length = if let Some(object_payload_length) =
+                object_metadata.object_payload_length.as_ref()
+            {
+                *object_payload_length as usize
+            } else {
+                0
+            };
+            let mut payload_to_draw = r.remaining();
+            if fin && has_length && payload_length > r.remaining() {
+                return Err(Error::ErrProtocolViolation(
+                    "Received FIN mid-payload".to_string(),
+                ));
+            }
+            let received_complete_message = fin || (has_length && payload_length <= r.remaining());
+            if received_complete_message && has_length && payload_length < r.remaining() {
+                payload_to_draw = payload_length;
+            }
+            // The error case where there's a fin before the explicit length is complete
+            // is handled in ProcessData() in two separate places. Even though the
+            // message is "done" if fin regardless of has_length, it's bad to report to
+            // the application that the object is done if it hasn't reached the promised
+            // length.
+            /*TODO: visitor_.OnObjectMessage(
+                *object_metadata_,
+                reader.PeekRemainingPayload().substr(0, payload_to_draw),
+                received_complete_message);
+            reader.Seek(payload_to_draw);*/
+            *payload_length_remaining = if has_length {
+                payload_length - payload_to_draw
+            } else {
+                0
+            };
+
+            total_len += payload_to_draw;
+        }
+
+        Ok(total_len)
     }
 
     fn parse_error(&mut self, error_code: ParserErrorCode, error_reason: String) {
