@@ -59,7 +59,7 @@ impl Serializer for SubscribeOk {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::{FullSequence, Message};
+    use crate::message::{ControlMessage, FullSequence};
     use std::io::Cursor;
 
     #[test]
@@ -69,7 +69,7 @@ mod test {
             0x01, 0x0c, 0x14, // largest_group_id = 12, largest_object_id = 20,
         ];
 
-        let expected_message = Message::SubscribeOk(SubscribeOk {
+        let expected_message = ControlMessage::SubscribeOk(SubscribeOk {
             subscribe_id: 1,
             expires: 3,
             largest_group_object: Some(FullSequence {
@@ -79,7 +79,7 @@ mod test {
         });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
         assert_eq!(expected_message, actual_message);
         assert_eq!(expected_packet.len(), actual_len);
 

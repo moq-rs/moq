@@ -59,12 +59,12 @@ impl Serializer for ClientSetup {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::Message;
+    use crate::message::ControlMessage;
     use std::io::Cursor;
 
     #[test]
     fn test_client_setup() -> Result<()> {
-        let tests: Vec<(Vec<u8>, Message)> = vec![
+        let tests: Vec<(Vec<u8>, ControlMessage)> = vec![
             (
                 vec![
                     0x40, 0x40, // type
@@ -75,7 +75,7 @@ mod test {
                     0x00, 0x01, 0x03, // role = PubSub
                     0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
                 ],
-                Message::ClientSetup(ClientSetup {
+                ControlMessage::ClientSetup(ClientSetup {
                     supported_versions: vec![Version::Draft01, Version::Draft02],
                     role: Role::PubSub,
                     path: Some("foo".to_string()),
@@ -88,7 +88,7 @@ mod test {
                     0x00, 0x01, 0x03, // role = PubSub
                     0x01, 0x01, 0x65, // path = "e"
                 ],
-                Message::ClientSetup(ClientSetup {
+                ControlMessage::ClientSetup(ClientSetup {
                     supported_versions: vec![Version::Draft00],
                     role: Role::PubSub,
                     path: Some("e".to_string()),
@@ -98,7 +98,7 @@ mod test {
 
         for (expected_packet, expected_message) in tests {
             let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-            let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+            let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
             assert_eq!(expected_message, actual_message);
             assert_eq!(expected_packet.len(), actual_len);
 

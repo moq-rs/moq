@@ -49,7 +49,7 @@ impl Serializer for AnnounceError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::Message;
+    use crate::message::ControlMessage;
     use std::io::Cursor;
 
     #[test]
@@ -60,14 +60,14 @@ mod test {
             0x03, 0x62, 0x61, 0x72, // reason_phrase = "bar"
         ];
 
-        let expected_message = Message::AnnounceError(AnnounceError {
+        let expected_message = ControlMessage::AnnounceError(AnnounceError {
             track_namespace: "foo".to_string(),
             error_code: 1,
             reason_phrase: "bar".to_string(),
         });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
         assert_eq!(expected_message, actual_message);
         assert_eq!(expected_packet.len(), actual_len);
 

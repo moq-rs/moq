@@ -1,21 +1,5 @@
-use crate::message::announce::Announce;
-use crate::message::announce_cancel::AnnounceCancel;
-use crate::message::announce_error::AnnounceError;
-use crate::message::announce_ok::AnnounceOk;
-use crate::message::client_setup::ClientSetup;
-use crate::message::go_away::GoAway;
 use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
-use crate::message::server_setup::ServerSetup;
-use crate::message::subscribe::Subscribe;
-use crate::message::subscribe_done::SubscribeDone;
-use crate::message::subscribe_error::SubscribeError;
-use crate::message::subscribe_ok::SubscribeOk;
-use crate::message::subscribe_update::SubscribeUpdate;
-use crate::message::track_status::TrackStatus;
-use crate::message::track_status_request::TrackStatusRequest;
-use crate::message::unannounce::UnAnnounce;
-use crate::message::unsubscribe::UnSubscribe;
-use crate::message::{Message, MessageType, MAX_MESSSAGE_HEADER_SIZE};
+use crate::message::{ControlMessage, MessageType, MAX_MESSSAGE_HEADER_SIZE};
 use crate::serde::Deserializer;
 use crate::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -34,22 +18,7 @@ pub enum ParserErrorCode {
 pub enum MessageParserEvent {
     ParsingError(ParserErrorCode, String),
     ObjectMessage(ObjectHeader, Bytes, bool),
-    ClientSetupMessage(ClientSetup),
-    ServerSetupMessage(ServerSetup),
-    SubscribeMessage(Subscribe),
-    SubscribeOkMessage(SubscribeOk),
-    SubscribeErrorMessage(SubscribeError),
-    UnSubscribeMessage(UnSubscribe),
-    SubscribeDoneMessage(SubscribeDone),
-    SubscribeUpdateMessage(SubscribeUpdate),
-    AnnounceMessage(Announce),
-    AnnounceOkMessage(AnnounceOk),
-    AnnounceErrorMessage(AnnounceError),
-    AnnounceCancelMessage(AnnounceCancel),
-    TrackStatusRequestMessage(TrackStatusRequest),
-    UnAnnounceMessage(UnAnnounce),
-    TrackStatusMessage(TrackStatus),
-    GoAwayMessage(GoAway),
+    ControlMessage(ControlMessage),
 }
 
 pub struct MessageParser {
@@ -97,8 +66,6 @@ impl MessageParser {
     /// All bytes can be freed. Calls OnParsingError() when there is a parsing
     /// error.
     /// Any calls after sending |fin| = true will be ignored.
-    /// TODO: Figure out what has to happen if the message arrives via
-    ///       datagram rather than a stream.
     pub fn process_data<R: Buf>(&mut self, buf: &mut R, fin: bool) {
         if self.no_more_data {
             self.parse_error(
@@ -242,7 +209,9 @@ impl MessageParser {
             self.process_object(message_type, fin)
         } else {
             let mut msg_reader = self.buffered_message.as_ref();
-            let (_message, message_len) = Message::deserialize(&mut msg_reader)?;
+            let (control_message, message_len) = ControlMessage::deserialize(&mut msg_reader)?;
+            self.parser_events
+                .push_back(MessageParserEvent::ControlMessage(control_message));
             Ok(message_len)
         }
     }
@@ -260,6 +229,7 @@ impl MessageParser {
 
         let mut payload_reader = &self.buffered_message.as_ref()[processed_data..];
         match MessageParser::process_object_payload(
+            &mut self.parser_events,
             &mut self.object_metadata,
             &mut self.payload_length_remaining,
             &mut payload_reader,
@@ -326,6 +296,7 @@ impl MessageParser {
     }
 
     fn process_object_payload<R: Buf>(
+        parser_events: &mut VecDeque<MessageParserEvent>,
         object_header: &mut Option<ObjectHeader>,
         payload_length_remaining: &mut usize,
         r: &mut R,
@@ -388,7 +359,11 @@ impl MessageParser {
                         "Object with non-normal status has payload".to_string(),
                     ));
                 }
-                //TODO: visitor_.OnObjectMessage(*object_metadata_, "", true);
+                parser_events.push_back(MessageParserEvent::ObjectMessage(
+                    *object_metadata,
+                    Bytes::new(),
+                    true,
+                ));
                 return Ok(total_len);
             }
 
@@ -415,11 +390,11 @@ impl MessageParser {
             // message is "done" if fin regardless of has_length, it's bad to report to
             // the application that the object is done if it hasn't reached the promised
             // length.
-            /*TODO: visitor_.OnObjectMessage(
-                *object_metadata_,
-                reader.PeekRemainingPayload().substr(0, payload_to_draw),
-                received_complete_message);
-            reader.Seek(payload_to_draw);*/
+            parser_events.push_back(MessageParserEvent::ObjectMessage(
+                *object_metadata,
+                r.copy_to_bytes(payload_to_draw),
+                received_complete_message,
+            ));
             *payload_length_remaining = if has_length {
                 payload_length - payload_to_draw
             } else {

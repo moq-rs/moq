@@ -22,7 +22,7 @@ impl Serializer for UnSubscribe {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::Message;
+    use crate::message::ControlMessage;
     use std::io::Cursor;
 
     #[test]
@@ -31,10 +31,10 @@ mod test {
             0x0a, 0x03, // subscribe_id = 3
         ];
 
-        let expected_message = Message::UnSubscribe(UnSubscribe { subscribe_id: 3 });
+        let expected_message = ControlMessage::UnSubscribe(UnSubscribe { subscribe_id: 3 });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
         assert_eq!(expected_message, actual_message);
         assert_eq!(expected_packet.len(), actual_len);
 

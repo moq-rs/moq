@@ -75,7 +75,7 @@ impl Serializer for SubscribeDone {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::Message;
+    use crate::message::ControlMessage;
     use std::io::Cursor;
 
     #[test]
@@ -86,7 +86,7 @@ mod test {
             0x01, 0x08, 0x0c, // final_id = (8,12)
         ];
 
-        let expected_message = Message::SubscribeDone(SubscribeDone {
+        let expected_message = ControlMessage::SubscribeDone(SubscribeDone {
             subscribe_id: 2,
             status_code: 3,
             reason_phrase: "hi".to_string(),
@@ -97,7 +97,7 @@ mod test {
         });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
         assert_eq!(expected_message, actual_message);
         assert_eq!(expected_packet.len(), actual_len);
 

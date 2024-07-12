@@ -51,7 +51,7 @@ impl Serializer for TrackStatus {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::message::Message;
+    use crate::message::ControlMessage;
     use std::io::Cursor;
 
     #[test]
@@ -62,7 +62,7 @@ mod test {
             0x00, 0x0c, 0x14, // status, last_group, last_object
         ];
 
-        let expected_message = Message::TrackStatus(TrackStatus {
+        let expected_message = ControlMessage::TrackStatus(TrackStatus {
             track_namespace: "foo".to_string(),
             track_name: "abcd".to_string(),
             status_code: TrackStatusCode::InProgress as u64,
@@ -73,7 +73,7 @@ mod test {
         });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
-        let (actual_message, actual_len) = Message::deserialize(&mut cursor)?;
+        let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
         assert_eq!(expected_message, actual_message);
         assert_eq!(expected_packet.len(), actual_len);
 

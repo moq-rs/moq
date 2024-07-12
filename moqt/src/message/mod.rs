@@ -4,7 +4,7 @@ use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::go_away::GoAway;
-use crate::message::object::{ObjectForwardingPreference, ObjectHeader};
+use crate::message::object::ObjectForwardingPreference;
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
@@ -16,7 +16,7 @@ use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::{Deserializer, Error, Result, Serializer};
-use bytes::{Buf, BufMut, Bytes};
+use bytes::{Buf, BufMut};
 
 pub mod announce;
 pub mod announce_cancel;
@@ -324,9 +324,7 @@ impl Serializer for Role {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Message {
-    ObjectStream(ObjectHeader, Bytes, bool),
-    ObjectDatagram(ObjectHeader, Bytes),
+pub enum ControlMessage {
     SubscribeUpdate(SubscribeUpdate),
     Subscribe(Subscribe),
     SubscribeOk(SubscribeOk),
@@ -345,7 +343,7 @@ pub enum Message {
     ServerSetup(ServerSetup),
 }
 
-impl Deserializer for Message {
+impl Deserializer for ControlMessage {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let (message_type, mtl) = MessageType::deserialize(r)?;
         match message_type {
@@ -355,154 +353,151 @@ impl Deserializer for Message {
             | MessageType::ObjectDatagram => Err(Error::ErrInvalidMessageType(message_type as u64)),
             MessageType::SubscribeUpdate => {
                 let (m, ml) = SubscribeUpdate::deserialize(r)?;
-                Ok((Message::SubscribeUpdate(m), mtl + ml))
+                Ok((ControlMessage::SubscribeUpdate(m), mtl + ml))
             }
             MessageType::Subscribe => {
                 let (m, ml) = Subscribe::deserialize(r)?;
-                Ok((Message::Subscribe(m), mtl + ml))
+                Ok((ControlMessage::Subscribe(m), mtl + ml))
             }
             MessageType::SubscribeOk => {
                 let (m, ml) = SubscribeOk::deserialize(r)?;
-                Ok((Message::SubscribeOk(m), mtl + ml))
+                Ok((ControlMessage::SubscribeOk(m), mtl + ml))
             }
             MessageType::SubscribeError => {
                 let (m, ml) = SubscribeError::deserialize(r)?;
-                Ok((Message::SubscribeError(m), mtl + ml))
+                Ok((ControlMessage::SubscribeError(m), mtl + ml))
             }
             MessageType::Announce => {
                 let (m, ml) = Announce::deserialize(r)?;
-                Ok((Message::Announce(m), mtl + ml))
+                Ok((ControlMessage::Announce(m), mtl + ml))
             }
             MessageType::AnnounceOk => {
                 let (m, ml) = AnnounceOk::deserialize(r)?;
-                Ok((Message::AnnounceOk(m), mtl + ml))
+                Ok((ControlMessage::AnnounceOk(m), mtl + ml))
             }
             MessageType::AnnounceError => {
                 let (m, ml) = AnnounceError::deserialize(r)?;
-                Ok((Message::AnnounceError(m), mtl + ml))
+                Ok((ControlMessage::AnnounceError(m), mtl + ml))
             }
             MessageType::UnAnnounce => {
                 let (m, ml) = UnAnnounce::deserialize(r)?;
-                Ok((Message::UnAnnounce(m), mtl + ml))
+                Ok((ControlMessage::UnAnnounce(m), mtl + ml))
             }
             MessageType::UnSubscribe => {
                 let (m, ml) = UnSubscribe::deserialize(r)?;
-                Ok((Message::UnSubscribe(m), mtl + ml))
+                Ok((ControlMessage::UnSubscribe(m), mtl + ml))
             }
             MessageType::SubscribeDone => {
                 let (m, ml) = SubscribeDone::deserialize(r)?;
-                Ok((Message::SubscribeDone(m), mtl + ml))
+                Ok((ControlMessage::SubscribeDone(m), mtl + ml))
             }
             MessageType::AnnounceCancel => {
                 let (m, ml) = AnnounceCancel::deserialize(r)?;
-                Ok((Message::AnnounceCancel(m), mtl + ml))
+                Ok((ControlMessage::AnnounceCancel(m), mtl + ml))
             }
             MessageType::TrackStatusRequest => {
                 let (m, ml) = TrackStatusRequest::deserialize(r)?;
-                Ok((Message::TrackStatusRequest(m), mtl + ml))
+                Ok((ControlMessage::TrackStatusRequest(m), mtl + ml))
             }
             MessageType::TrackStatus => {
                 let (m, ml) = TrackStatus::deserialize(r)?;
-                Ok((Message::TrackStatus(m), mtl + ml))
+                Ok((ControlMessage::TrackStatus(m), mtl + ml))
             }
             MessageType::GoAway => {
                 let (m, ml) = GoAway::deserialize(r)?;
-                Ok((Message::GoAway(m), mtl + ml))
+                Ok((ControlMessage::GoAway(m), mtl + ml))
             }
             MessageType::ClientSetup => {
                 let (m, ml) = ClientSetup::deserialize(r)?;
-                Ok((Message::ClientSetup(m), mtl + ml))
+                Ok((ControlMessage::ClientSetup(m), mtl + ml))
             }
             MessageType::ServerSetup => {
                 let (m, ml) = ServerSetup::deserialize(r)?;
-                Ok((Message::ServerSetup(m), mtl + ml))
+                Ok((ControlMessage::ServerSetup(m), mtl + ml))
             }
         }
     }
 }
 
-impl Serializer for Message {
+impl Serializer for ControlMessage {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
         match self {
-            Message::ObjectStream(_, _, _) | Message::ObjectDatagram(_, _) => {
-                Err(Error::ErrInvalidMessageType(0))
-            }
-            Message::SubscribeUpdate(subscribe_update) => {
+            ControlMessage::SubscribeUpdate(subscribe_update) => {
                 let mut l = MessageType::SubscribeUpdate.serialize(w)?;
                 l += subscribe_update.serialize(w)?;
                 Ok(l)
             }
-            Message::Subscribe(subscribe) => {
+            ControlMessage::Subscribe(subscribe) => {
                 let mut l = MessageType::Subscribe.serialize(w)?;
                 l += subscribe.serialize(w)?;
                 Ok(l)
             }
-            Message::SubscribeOk(subscribe_ok) => {
+            ControlMessage::SubscribeOk(subscribe_ok) => {
                 let mut l = MessageType::SubscribeOk.serialize(w)?;
                 l += subscribe_ok.serialize(w)?;
                 Ok(l)
             }
-            Message::SubscribeError(subscribe_error) => {
+            ControlMessage::SubscribeError(subscribe_error) => {
                 let mut l = MessageType::SubscribeError.serialize(w)?;
                 l += subscribe_error.serialize(w)?;
                 Ok(l)
             }
-            Message::Announce(announce) => {
+            ControlMessage::Announce(announce) => {
                 let mut l = MessageType::Announce.serialize(w)?;
                 l += announce.serialize(w)?;
                 Ok(l)
             }
-            Message::AnnounceOk(announce_ok) => {
+            ControlMessage::AnnounceOk(announce_ok) => {
                 let mut l = MessageType::AnnounceOk.serialize(w)?;
                 l += announce_ok.serialize(w)?;
                 Ok(l)
             }
-            Message::AnnounceError(announce_error) => {
+            ControlMessage::AnnounceError(announce_error) => {
                 let mut l = MessageType::AnnounceError.serialize(w)?;
                 l += announce_error.serialize(w)?;
                 Ok(l)
             }
-            Message::UnAnnounce(unannounce) => {
+            ControlMessage::UnAnnounce(unannounce) => {
                 let mut l = MessageType::UnAnnounce.serialize(w)?;
                 l += unannounce.serialize(w)?;
                 Ok(l)
             }
-            Message::UnSubscribe(unsubscribe) => {
+            ControlMessage::UnSubscribe(unsubscribe) => {
                 let mut l = MessageType::UnSubscribe.serialize(w)?;
                 l += unsubscribe.serialize(w)?;
                 Ok(l)
             }
-            Message::SubscribeDone(subscribe_done) => {
+            ControlMessage::SubscribeDone(subscribe_done) => {
                 let mut l = MessageType::SubscribeDone.serialize(w)?;
                 l += subscribe_done.serialize(w)?;
                 Ok(l)
             }
-            Message::AnnounceCancel(announce_cancel) => {
+            ControlMessage::AnnounceCancel(announce_cancel) => {
                 let mut l = MessageType::AnnounceCancel.serialize(w)?;
                 l += announce_cancel.serialize(w)?;
                 Ok(l)
             }
-            Message::TrackStatusRequest(track_status_request) => {
+            ControlMessage::TrackStatusRequest(track_status_request) => {
                 let mut l = MessageType::TrackStatusRequest.serialize(w)?;
                 l += track_status_request.serialize(w)?;
                 Ok(l)
             }
-            Message::TrackStatus(track_status) => {
+            ControlMessage::TrackStatus(track_status) => {
                 let mut l = MessageType::TrackStatus.serialize(w)?;
                 l += track_status.serialize(w)?;
                 Ok(l)
             }
-            Message::GoAway(go_away) => {
+            ControlMessage::GoAway(go_away) => {
                 let mut l = MessageType::GoAway.serialize(w)?;
                 l += go_away.serialize(w)?;
                 Ok(l)
             }
-            Message::ClientSetup(client_setup) => {
+            ControlMessage::ClientSetup(client_setup) => {
                 let mut l = MessageType::ClientSetup.serialize(w)?;
                 l += client_setup.serialize(w)?;
                 Ok(l)
             }
-            Message::ServerSetup(server_setup) => {
+            ControlMessage::ServerSetup(server_setup) => {
                 let mut l = MessageType::ServerSetup.serialize(w)?;
                 l += server_setup.serialize(w)?;
                 Ok(l)
