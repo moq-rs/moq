@@ -46,7 +46,7 @@ impl VarInt {
     }
 
     /// Compute the number of bytes needed to encode this value
-    pub(crate) fn size(self) -> usize {
+    pub fn size(self) -> usize {
         let x = self.0;
         if x < 2u64.pow(6) {
             1
@@ -86,7 +86,7 @@ impl From<u32> for VarInt {
     }
 }
 
-impl std::convert::TryFrom<u64> for VarInt {
+impl TryFrom<u64> for VarInt {
     type Error = Error;
     /// Succeeds iff `x` < 2^62
     fn try_from(x: u64) -> std::result::Result<Self, Self::Error> {

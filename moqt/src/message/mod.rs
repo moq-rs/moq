@@ -37,6 +37,11 @@ pub mod track_status_request;
 pub mod unannounce;
 pub mod unsubscribe;
 
+#[cfg(test)]
+mod message_parser_test;
+#[cfg(test)]
+mod message_test;
+
 /// The maximum length of a message, excluding and OBJECT payload.
 /// This prevents DoS attack via forcing the parser to buffer a large
 /// message (OBJECT payloads are not buffered by the parser)
