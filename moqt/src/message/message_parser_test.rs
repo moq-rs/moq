@@ -25,7 +25,7 @@ static TEST_MESSAGE_TYPES: &[MessageType] = &[
     MessageType::TrackStatus,
     MessageType::ClientSetup,
     MessageType::ServerSetup,
-    /*MessageType::GoAway,*/
+    MessageType::GoAway,
 ];
 
 struct TestParserParams {

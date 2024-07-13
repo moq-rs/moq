@@ -3,6 +3,7 @@ use crate::message::announce_cancel::AnnounceCancel;
 use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
+use crate::message::go_away::GoAway;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
@@ -1716,5 +1717,68 @@ impl TestMessageBase for TestTrackStatusMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vv---v----vvv".as_bytes())
+    }
+}
+
+struct TestGoAwayMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    go_away: GoAway,
+}
+
+impl TestGoAwayMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::GoAway);
+        let go_away = GoAway {
+            new_session_uri: "foo".to_string(),
+        };
+        let raw_packet = vec![0x10, 0x03, 0x66, 0x6f, 0x6f];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            go_away,
+        }
+    }
+}
+
+impl Deref for TestGoAwayMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestGoAwayMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestGoAwayMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::GoAway(self.go_away.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::GoAway(cast)) = values {
+            cast
+        } else {
+            return false;
+        };
+        if cast.new_session_uri != self.go_away.new_session_uri {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---".as_bytes())
     }
 }
