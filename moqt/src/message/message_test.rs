@@ -2,6 +2,7 @@ use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
+use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::message::{FilterType, FullSequence, Role};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
@@ -808,5 +809,83 @@ impl TestMessageBase for TestSubscribeMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vvvv---v----vvvvvv---".as_bytes())
+    }
+}
+
+struct TestSubscribeOkMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    subscribe_ok: SubscribeOk,
+}
+
+impl TestSubscribeOkMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let subscribe_ok = SubscribeOk {
+            subscribe_id: 1,
+            expires: 3,
+            largest_group_object: Some(FullSequence {
+                group_id: 12,
+                object_id: 20,
+            }),
+        };
+        let raw_packet = vec![
+            0x04, 0x01, 0x03, // subscribe_id = 1, expires = 3
+            0x01, 0x0c, 0x14, // largest_group_id = 12, largest_object_id = 20,
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            subscribe_ok,
+        }
+    }
+}
+
+impl Deref for TestSubscribeOkMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestSubscribeOkMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestSubscribeOkMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::SubscribeOk(self.subscribe_ok.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::SubscribeOk(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
+        if cast.subscribe_id != self.subscribe_ok.subscribe_id {
+            return false;
+        }
+        if cast.expires != self.subscribe_ok.expires {
+            return false;
+        }
+        if cast.largest_group_object != self.subscribe_ok.largest_group_object {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvv-vv".as_bytes())
     }
 }
