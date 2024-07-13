@@ -1,4 +1,5 @@
 use crate::message::announce::Announce;
+use crate::message::announce_cancel::AnnounceCancel;
 use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
@@ -1423,5 +1424,71 @@ impl TestMessageBase for TestAnnounceErrorMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vv---vv---".as_bytes())
+    }
+}
+
+struct TestAnnounceCancelMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    announce_cancel: AnnounceCancel,
+}
+
+impl TestAnnounceCancelMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::AnnounceCancel);
+        let announce_cancel = AnnounceCancel {
+            track_namespace: "foo".to_string(),
+        };
+        let raw_packet = vec![
+            0x0c, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            announce_cancel,
+        }
+    }
+}
+
+impl Deref for TestAnnounceCancelMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestAnnounceCancelMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestAnnounceCancelMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::AnnounceCancel(self.announce_cancel.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::AnnounceCancel(cast)) = values {
+                cast
+            } else {
+                return false;
+            };
+        if cast.track_namespace != self.announce_cancel.track_namespace {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---".as_bytes())
     }
 }
