@@ -10,8 +10,8 @@ static TEST_MESSAGE_TYPES: &[MessageType] = &[
     MessageType::ObjectStream, // ObjectDatagram is a unique set of tests.
     MessageType::StreamHeaderTrack,
     MessageType::StreamHeaderGroup,
-    /*TODO:MessageType::Subscribe,
-    MessageType::SubscribeOk,
+    MessageType::Subscribe,
+    /*TODO:MessageType::SubscribeOk,
     MessageType::SubscribeError,
     MessageType::SubscribeUpdate,
     MessageType::UnSubscribe,

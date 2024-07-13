@@ -1,8 +1,9 @@
 use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
-use crate::message::Role;
+use crate::message::subscribe::Subscribe;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
+use crate::message::{FilterType, FullSequence, Role};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
 use std::ops::{Deref, DerefMut};
@@ -606,14 +607,12 @@ impl TestMessageBase for TestClientSetupMessage {
     }
 
     fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
-        let cast =
-            if let MessageStructuredData::Control(ControlMessage::ClientSetup(client_setup)) =
-                values
-            {
-                client_setup
-            } else {
-                return false;
-            };
+        let cast = if let MessageStructuredData::Control(ControlMessage::ClientSetup(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
         if cast.supported_versions.len() != self.client_setup.supported_versions.len() {
             return false;
         }
@@ -696,14 +695,12 @@ impl TestMessageBase for TestServerSetupMessage {
     }
 
     fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
-        let cast =
-            if let MessageStructuredData::Control(ControlMessage::ServerSetup(server_setup)) =
-                values
-            {
-                server_setup
-            } else {
-                return false;
-            };
+        let cast = if let MessageStructuredData::Control(ControlMessage::ServerSetup(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
         if cast.supported_version != self.server_setup.supported_version {
             return false;
         }
@@ -715,5 +712,101 @@ impl TestMessageBase for TestServerSetupMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("--vvvv-".as_bytes())
+    }
+}
+
+struct TestSubscribeMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    subscribe: Subscribe,
+}
+
+impl TestSubscribeMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let subscribe = Subscribe {
+            subscribe_id: 1,
+            track_alias: 2,
+            track_namespace: "foo".to_string(),
+            track_name: "abcd".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence {
+                group_id: 4,
+                object_id: 1,
+            }),
+            authorization_info: Some("bar".to_string()),
+        };
+        let raw_packet = vec![
+            0x03, 0x01, 0x02, // id and alias
+            0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+            0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+            0x03, // Filter type: Absolute Start
+            0x04, // start_group = 4 (relative previous)
+            0x01, // start_object = 1 (absolute)
+            // No EndGroup or EndObject
+            0x01, // 1 parameter
+            0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            subscribe,
+        }
+    }
+}
+
+impl Deref for TestSubscribeMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestSubscribeMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestSubscribeMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::Subscribe(self.subscribe.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::Subscribe(cast)) = values {
+            cast
+        } else {
+            return false;
+        };
+        if cast.subscribe_id != self.subscribe.subscribe_id {
+            return false;
+        }
+        if cast.track_alias != self.subscribe.track_alias {
+            return false;
+        }
+        if cast.track_namespace != self.subscribe.track_namespace {
+            return false;
+        }
+        if cast.track_name != self.subscribe.track_name {
+            return false;
+        }
+        if cast.filter_type != self.subscribe.filter_type {
+            return false;
+        }
+        if cast.authorization_info != self.subscribe.authorization_info {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvvv---v----vvvvvv---".as_bytes())
     }
 }
