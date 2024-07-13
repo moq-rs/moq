@@ -2,14 +2,15 @@ use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
+use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::{SubscribeError, SubscribeErrorCode};
 use crate::message::subscribe_ok::SubscribeOk;
+use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::message::{FilterType, FullSequence, Role};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
 use std::ops::{Deref, DerefMut};
-use crate::message::unsubscribe::UnSubscribe;
 
 pub(crate) enum MessageStructuredData {
     Control(ControlMessage),
@@ -1020,12 +1021,12 @@ impl TestMessageBase for TestUnSubscribeMessage {
     }
 
     fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
-        let cast =
-            if let MessageStructuredData::Control(ControlMessage::UnSubscribe(cast)) = values {
-                cast
-            } else {
-                return false;
-            };
+        let cast = if let MessageStructuredData::Control(ControlMessage::UnSubscribe(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
         if cast.subscribe_id != self.un_subscribe.subscribe_id {
             return false;
         }
@@ -1034,5 +1035,88 @@ impl TestMessageBase for TestUnSubscribeMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vv".as_bytes())
+    }
+}
+
+struct TestSubscribeDoneMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    subscribe_done: SubscribeDone,
+}
+
+impl TestSubscribeDoneMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::SubscribeDone);
+        let subscribe_done = SubscribeDone {
+            subscribe_id: 2,
+            status_code: 3,
+            reason_phrase: "hi".to_string(),
+            final_group_object: Some(FullSequence {
+                group_id: 8,
+                object_id: 12,
+            }),
+        };
+        let raw_packet = vec![
+            0x0b, 0x02, 0x03, // subscribe_id = 2, error_code = 3,
+            0x02, 0x68, 0x69, // reason_phrase = "hi"
+            0x01, 0x08, 0x0c, // final_id = (8,12)
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            subscribe_done,
+        }
+    }
+}
+
+impl Deref for TestSubscribeDoneMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestSubscribeDoneMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestSubscribeDoneMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::SubscribeDone(self.subscribe_done.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::SubscribeDone(cast)) = values {
+                cast
+            } else {
+                return false;
+            };
+        if cast.subscribe_id != self.subscribe_done.subscribe_id {
+            return false;
+        }
+        if cast.status_code != self.subscribe_done.status_code {
+            return false;
+        }
+        if cast.reason_phrase != self.subscribe_done.reason_phrase {
+            return false;
+        }
+        if cast.final_group_object != self.subscribe_done.final_group_object {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvvv---vv".as_bytes())
     }
 }
