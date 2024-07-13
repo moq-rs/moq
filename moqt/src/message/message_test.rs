@@ -10,6 +10,7 @@ use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::{SubscribeError, SubscribeErrorCode};
 use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::subscribe_update::SubscribeUpdate;
+use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::message::{FilterType, FullSequence, Role};
@@ -1483,6 +1484,72 @@ impl TestMessageBase for TestAnnounceCancelMessage {
                 return false;
             };
         if cast.track_namespace != self.announce_cancel.track_namespace {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---".as_bytes())
+    }
+}
+
+struct TestUnAnnounceMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    un_announce: UnAnnounce,
+}
+
+impl TestUnAnnounceMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::UnAnnounce);
+        let un_announce = UnAnnounce {
+            track_namespace: "foo".to_string(),
+        };
+        let raw_packet = vec![
+            0x09, 0x03, 0x66, 0x6f, 0x6f, // track_namespace
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            un_announce,
+        }
+    }
+}
+
+impl Deref for TestUnAnnounceMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestUnAnnounceMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestUnAnnounceMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::UnAnnounce(self.un_announce.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::UnAnnounce(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
+        if cast.track_namespace != self.un_announce.track_namespace {
             return false;
         }
         true
