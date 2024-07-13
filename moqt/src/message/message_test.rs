@@ -11,6 +11,7 @@ use crate::message::{FilterType, FullSequence, Role};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
 use std::ops::{Deref, DerefMut};
+use crate::message::subscribe_update::SubscribeUpdate;
 
 pub(crate) enum MessageStructuredData {
     Control(ControlMessage),
@@ -1118,5 +1119,92 @@ impl TestMessageBase for TestSubscribeDoneMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vvvv---vv".as_bytes())
+    }
+}
+
+
+struct TestSubscribeUpdateMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    subscribe_update: SubscribeUpdate,
+}
+
+impl TestSubscribeUpdateMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::SubscribeDone);
+        let subscribe_update = SubscribeUpdate {
+            subscribe_id: 2,
+            start_group_object: FullSequence {
+                group_id: 3,
+                object_id: 1,
+            },
+            end_group_object: Some(FullSequence {
+                group_id: 4,
+                object_id: 5,
+            }),
+            authorization_info: Some("bar".to_string()),
+        };
+        let raw_packet = vec![
+            0x02, 0x02, 0x03, 0x01, 0x05, 0x06, // start and end sequences
+            0x01, // 1 parameter
+            0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            subscribe_update,
+        }
+    }
+}
+
+impl Deref for TestSubscribeUpdateMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestSubscribeUpdateMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestSubscribeUpdateMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::SubscribeUpdate(self.subscribe_update.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::SubscribeUpdate(cast)) = values {
+                cast
+            } else {
+                return false;
+            };
+        if cast.subscribe_id != self.subscribe_update.subscribe_id {
+            return false;
+        }
+        if cast.start_group_object != self.subscribe_update.start_group_object {
+            return false;
+        }
+        if cast.end_group_object != self.subscribe_update.end_group_object {
+            return false;
+        }
+        if cast.authorization_info != self.subscribe_update.authorization_info {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvvvvvvvv---".as_bytes())
     }
 }
