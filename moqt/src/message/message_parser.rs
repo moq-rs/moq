@@ -220,11 +220,15 @@ impl MessageParser {
         let mut processed_data = 0;
         assert!(!self.object_payload_in_progress());
         if !self.object_stream_initialized() {
-            let mut oh_reader = self.buffered_message.as_ref();
+            let mut mt_reader = self.buffered_message.as_ref();
+            let (_, mtl) = MessageType::deserialize(&mut mt_reader)?;
+            processed_data += mtl;
+
+            let mut oh_reader = &self.buffered_message.as_ref()[processed_data..];
             let (object_metadata, obl) =
                 MessageParser::parse_object_header(&mut oh_reader, message_type)?;
             self.object_metadata = Some(object_metadata);
-            processed_data = obl;
+            processed_data += obl;
         }
 
         let mut payload_reader = &self.buffered_message.as_ref()[processed_data..];
@@ -307,39 +311,34 @@ impl MessageParser {
         // even if there's nothing else in the buffer.
         assert!(*payload_length_remaining == 0);
         let mut total_len = 0;
-        match message_type {
-            MessageType::StreamHeaderTrack => {
-                let (group_id, gil) = u64::deserialize(r)?;
-                total_len += gil;
-                if let Some(object_metadata) = object_header.as_mut() {
-                    object_metadata.group_id = group_id;
-                }
+        if message_type == MessageType::StreamHeaderTrack {
+            let (group_id, gil) = u64::deserialize(r)?;
+            total_len += gil;
+            if let Some(object_metadata) = object_header.as_mut() {
+                object_metadata.group_id = group_id;
             }
-            MessageType::StreamHeaderGroup => {
-                let (group_id, gil) = u64::deserialize(r)?;
-                total_len += gil;
+        }
+        if message_type == MessageType::StreamHeaderTrack
+            || message_type == MessageType::StreamHeaderGroup
+        {
+            let (object_id, oil) = u64::deserialize(r)?;
+            total_len += oil;
 
-                let (object_id, oil) = u64::deserialize(r)?;
-                total_len += oil;
+            let (object_payload_length, opl) = u64::deserialize(r)?;
+            total_len += opl;
 
-                let (object_payload_length, opl) = u64::deserialize(r)?;
-                total_len += opl;
-
-                let mut status = 0; // Defaults to kNormal.
-                if object_payload_length == 0 {
-                    let sl;
-                    (status, sl) = u64::deserialize(r)?;
-                    total_len += sl;
-                }
-
-                if let Some(object_metadata) = object_header.as_mut() {
-                    object_metadata.group_id = group_id;
-                    object_metadata.object_id = object_id;
-                    object_metadata.object_payload_length = Some(object_payload_length);
-                    object_metadata.object_status = status.into();
-                }
+            let mut status = 0; // Defaults to kNormal.
+            if object_payload_length == 0 {
+                let sl;
+                (status, sl) = u64::deserialize(r)?;
+                total_len += sl;
             }
-            _ => {}
+
+            if let Some(object_metadata) = object_header.as_mut() {
+                object_metadata.object_id = object_id;
+                object_metadata.object_payload_length = Some(object_payload_length);
+                object_metadata.object_status = status.into();
+            }
         }
 
         if let Some(object_metadata) = object_header.as_ref() {
