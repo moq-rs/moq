@@ -9,6 +9,7 @@ use crate::message::{FilterType, FullSequence, Role};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
 use std::ops::{Deref, DerefMut};
+use crate::message::unsubscribe::UnSubscribe;
 
 pub(crate) enum MessageStructuredData {
     Control(ControlMessage),
@@ -969,5 +970,69 @@ impl TestMessageBase for TestSubscribeErrorMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vvvv---v".as_bytes())
+    }
+}
+
+struct TestUnSubscribeMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    un_subscribe: UnSubscribe,
+}
+
+impl TestUnSubscribeMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::UnSubscribe);
+        let un_subscribe = UnSubscribe { subscribe_id: 3 };
+        let raw_packet = vec![
+            0x0a, 0x03, // subscribe_id = 3
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            un_subscribe,
+        }
+    }
+}
+
+impl Deref for TestUnSubscribeMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestUnSubscribeMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestUnSubscribeMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::UnSubscribe(self.un_subscribe.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::UnSubscribe(cast)) = values {
+                cast
+            } else {
+                return false;
+            };
+        if cast.subscribe_id != self.un_subscribe.subscribe_id {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv".as_bytes())
     }
 }
