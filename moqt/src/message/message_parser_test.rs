@@ -18,10 +18,10 @@ static TEST_MESSAGE_TYPES: &[MessageType] = &[
     MessageType::SubscribeUpdate,
     MessageType::Announce,
     MessageType::AnnounceOk,
+    MessageType::AnnounceError,
     /*TODO:MessageType::AnnounceCancel,
     MessageType::TrackStatusRequest,
     MessageType::TrackStatus,
-    MessageType::AnnounceError,
     MessageType::UnAnnounce,*/
     MessageType::ClientSetup,
     MessageType::ServerSetup,

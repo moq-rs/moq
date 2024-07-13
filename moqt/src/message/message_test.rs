@@ -1,4 +1,5 @@
 use crate::message::announce::Announce;
+use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
@@ -1345,6 +1346,82 @@ impl TestMessageBase for TestAnnounceOkMessage {
     }
 
     fn expand_varints(&mut self) -> Result<()> {
-        self.expand_varints_impl("vv---vvv---".as_bytes())
+        self.expand_varints_impl("vv---".as_bytes())
+    }
+}
+
+struct TestAnnounceErrorMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    announce_error: AnnounceError,
+}
+
+impl TestAnnounceErrorMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::AnnounceError);
+        let announce_error = AnnounceError {
+            track_namespace: "foo".to_string(),
+            error_code: 1,
+            reason_phrase: "bar".to_string(),
+        };
+        let raw_packet = vec![
+            0x08, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+            0x01, // error_code = 1
+            0x03, 0x62, 0x61, 0x72, // reason_phrase = "bar"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            announce_error,
+        }
+    }
+}
+
+impl Deref for TestAnnounceErrorMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestAnnounceErrorMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestAnnounceErrorMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::AnnounceError(self.announce_error.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::AnnounceError(cast)) = values {
+                cast
+            } else {
+                return false;
+            };
+        if cast.track_namespace != self.announce_error.track_namespace {
+            return false;
+        }
+        if cast.error_code != self.announce_error.error_code {
+            return false;
+        }
+        if cast.reason_phrase != self.announce_error.reason_phrase {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---vv---".as_bytes())
     }
 }
