@@ -1,5 +1,7 @@
+use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
-use crate::message::{ControlMessage, MessageType, MAX_MESSSAGE_HEADER_SIZE};
+use crate::message::Role;
+use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
 use std::ops::{Deref, DerefMut};
@@ -537,5 +539,105 @@ impl TestMessageBase for TestStreamMiddlerGroupMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vvv".as_bytes())
+    }
+}
+
+struct TestClientSetupMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    client_setup: ClientSetup,
+}
+
+impl TestClientSetupMessage {
+    fn new(webtrans: bool) -> Self {
+        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let mut client_setup = ClientSetup {
+            supported_versions: vec![Version::Draft01, Version::Draft02],
+            role: Role::PubSub,
+            path: Some("foo".to_string()),
+        };
+        let mut raw_packet = vec![
+            0x40, 0x40, // type
+            0x02, // versions
+            192, 0, 0, 0, 255, 0, 0, 1, // Draft01
+            192, 0, 0, 0, 255, 0, 0, 2,    // Draft02
+            0x02, // 2 parameters
+            0x00, 0x01, 0x03, // role = PubSub
+            0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
+        ];
+        if webtrans {
+            client_setup.path = None;
+            raw_packet[19] = 0x01; // only one parameter
+            base.set_wire_image(&raw_packet, raw_packet.len() - 5);
+        } else {
+            base.set_wire_image(&raw_packet, raw_packet.len());
+        }
+
+        Self {
+            base,
+            raw_packet,
+            client_setup,
+        }
+    }
+}
+
+impl Deref for TestClientSetupMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestClientSetupMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestClientSetupMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::ClientSetup(self.client_setup.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::ClientSetup(client_setup)) =
+                values
+            {
+                client_setup
+            } else {
+                return false;
+            };
+        if cast.supported_versions.len() != self.client_setup.supported_versions.len() {
+            return false;
+        }
+        for i in 0..cast.supported_versions.len() {
+            // Listed versions are 1 and 2, in that order.
+            if cast.supported_versions[i] != self.client_setup.supported_versions[i] {
+                return false;
+            }
+        }
+        if cast.role != self.client_setup.role {
+            return false;
+        }
+        if cast.path != self.client_setup.path {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        if self.client_setup.path.is_some() {
+            self.expand_varints_impl("--vvvvvv-vv---".as_bytes())
+            // first two bytes are already a 2B varint. Also, don't expand parameter
+            // varints because that messes up the parameter length field.
+        } else {
+            self.expand_varints_impl("--vvvvvv-".as_bytes())
+        }
     }
 }

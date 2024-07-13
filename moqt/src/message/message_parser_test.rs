@@ -22,8 +22,8 @@ static TEST_MESSAGE_TYPES: &[MessageType] = &[
     MessageType::Announce,
     MessageType::AnnounceOk,
     MessageType::AnnounceError,
-    MessageType::UnAnnounce,
-    MessageType::ClientSetup,
+    MessageType::UnAnnounce,*/
+    MessageType::ClientSetup, /*
     MessageType::ServerSetup,
     MessageType::GoAway,*/
 ];
