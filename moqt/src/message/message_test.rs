@@ -10,6 +10,7 @@ use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::{SubscribeError, SubscribeErrorCode};
 use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::subscribe_update::SubscribeUpdate;
+use crate::message::track_status::{TrackStatus, TrackStatusCode};
 use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
@@ -1632,5 +1633,88 @@ impl TestMessageBase for TestTrackStatusRequestMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vv---v----".as_bytes())
+    }
+}
+
+struct TestTrackStatusMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    track_status: TrackStatus,
+}
+
+impl TestTrackStatusMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::TrackStatus);
+        let track_status = TrackStatus {
+            track_namespace: "foo".to_string(),
+            track_name: "abcd".to_string(),
+            status_code: TrackStatusCode::InProgress as u64,
+            last_group_object: FullSequence {
+                group_id: 12,
+                object_id: 20,
+            },
+        };
+        let raw_packet = vec![
+            0x0e, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+            0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+            0x00, 0x0c, 0x14, // status, last_group, last_object
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            track_status,
+        }
+    }
+}
+
+impl Deref for TestTrackStatusMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestTrackStatusMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestTrackStatusMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::TrackStatus(self.track_status.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::TrackStatus(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
+        if cast.track_namespace != self.track_status.track_namespace {
+            return false;
+        }
+        if cast.track_name != self.track_status.track_name {
+            return false;
+        }
+        if cast.status_code != self.track_status.status_code {
+            return false;
+        }
+        if cast.last_group_object != self.track_status.last_group_object {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---v----vvv".as_bytes())
     }
 }
