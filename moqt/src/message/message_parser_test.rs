@@ -23,9 +23,9 @@ static TEST_MESSAGE_TYPES: &[MessageType] = &[
     MessageType::AnnounceOk,
     MessageType::AnnounceError,
     MessageType::UnAnnounce,*/
-    MessageType::ClientSetup, /*
+    MessageType::ClientSetup,
     MessageType::ServerSetup,
-    MessageType::GoAway,*/
+    /*MessageType::GoAway,*/
 ];
 
 struct TestParserParams {

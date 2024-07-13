@@ -1,5 +1,6 @@
 use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
+use crate::message::server_setup::ServerSetup;
 use crate::message::Role;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
@@ -639,5 +640,80 @@ impl TestMessageBase for TestClientSetupMessage {
         } else {
             self.expand_varints_impl("--vvvvvv-".as_bytes())
         }
+    }
+}
+
+struct TestServerSetupMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    server_setup: ServerSetup,
+}
+
+impl TestServerSetupMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let server_setup = ServerSetup {
+            supported_version: Version::Draft01,
+            role: Role::PubSub,
+        };
+        let raw_packet = vec![
+            0x40, 0x41, // type
+            192, 0, 0, 0, 255, 0, 0, 1,    // version Draft01
+            0x01, // one param
+            0x00, 0x01, 0x03, // role = PubSub
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            server_setup,
+        }
+    }
+}
+
+impl Deref for TestServerSetupMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestServerSetupMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestServerSetupMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::ServerSetup(self.server_setup.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::ServerSetup(server_setup)) =
+                values
+            {
+                server_setup
+            } else {
+                return false;
+            };
+        if cast.supported_version != self.server_setup.supported_version {
+            return false;
+        }
+        if cast.role != self.server_setup.role {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("--vvvv-".as_bytes())
     }
 }
