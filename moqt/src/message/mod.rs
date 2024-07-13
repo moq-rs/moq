@@ -510,13 +510,3 @@ impl Serializer for ControlMessage {
         }
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_message() -> Result<()> {
-        Ok(())
-    }
-}

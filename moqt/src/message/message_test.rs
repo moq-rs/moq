@@ -2,13 +2,17 @@ use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::{ControlMessage, MessageType, MAX_MESSSAGE_HEADER_SIZE};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
+use std::ops::{Deref, DerefMut};
 
-enum MessageStructuredData {
+pub(crate) enum MessageStructuredData {
     Control(ControlMessage),
     Object(ObjectHeader),
 }
 
-trait TestMessageBase {
+// Base class containing a wire image and the corresponding structured
+// representation of an example of each message. It allows parser and framer
+// tests to iterate through all message types without much specialized code.
+pub(crate) trait TestMessageBase {
     // Returns a copy of the structured data for the message.
     fn structured_data(&self) -> MessageStructuredData;
 
@@ -122,6 +126,19 @@ impl TestMessage {
     }
 }
 
+pub(crate) fn create_test_message(
+    message_type: MessageType,
+    _uses_web_transport: bool,
+) -> Box<dyn TestMessageBase> {
+    match message_type {
+        MessageType::ObjectStream => Box::new(TestObjectStreamMessage::new()),
+        MessageType::ObjectDatagram => Box::new(TestObjectDatagramMessage::new()),
+        MessageType::StreamHeaderTrack => Box::new(TestStreamHeaderTrackMessage::new()),
+        _ => Box::new(TestStreamHeaderGroupMessage::new()),
+    }
+}
+
+// Base class for the two subtypes of Object Message.
 struct TestObjectMessage {
     base: TestMessage,
     object_header: ObjectHeader,
@@ -144,6 +161,20 @@ impl TestObjectMessage {
                 object_payload_length: None,
             },
         }
+    }
+}
+
+impl Deref for TestObjectMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestObjectMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
     }
 }
 
@@ -197,13 +228,27 @@ struct TestObjectStreamMessage {
 
 impl TestObjectStreamMessage {
     fn new() -> Self {
-        Self {
-            base: TestObjectMessage::new(MessageType::ObjectStream),
-            raw_packet: vec![
-                0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, // varints
-                0x66, 0x6f, 0x6f, // payload = "foo"
-            ],
-        }
+        let mut base = TestObjectMessage::new(MessageType::ObjectStream);
+        let raw_packet = vec![
+            0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, // varints
+            0x66, 0x6f, 0x6f, // payload = "foo"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+        Self { base, raw_packet }
+    }
+}
+
+impl Deref for TestObjectStreamMessage {
+    type Target = TestObjectMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestObjectStreamMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
     }
 }
 
@@ -217,6 +262,250 @@ impl TestMessageBase for TestObjectStreamMessage {
     }
 
     fn expand_varints(&mut self) -> Result<()> {
-        self.base.base.expand_varints_impl("vvvvvvv---".as_bytes())
+        self.expand_varints_impl("vvvvvvv---".as_bytes()) // first six fields are varints
+    }
+}
+
+struct TestObjectDatagramMessage {
+    base: TestObjectMessage,
+    raw_packet: Vec<u8>,
+}
+
+impl TestObjectDatagramMessage {
+    fn new() -> Self {
+        let mut base = TestObjectMessage::new(MessageType::ObjectDatagram);
+        let raw_packet = vec![
+            0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, // varints
+            0x66, 0x6f, 0x6f, // payload = "foo"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+        Self { base, raw_packet }
+    }
+}
+
+impl Deref for TestObjectDatagramMessage {
+    type Target = TestObjectMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestObjectDatagramMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestObjectDatagramMessage {
+    fn structured_data(&self) -> MessageStructuredData {
+        self.base.structured_data()
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        self.base.equal_field_values(values)
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvvvvvv---".as_bytes()) // first six fields are varints
+    }
+}
+
+// Concatentation of the base header and the object-specific header. Follow-on
+// object headers are handled in a different class.
+struct TestStreamHeaderTrackMessage {
+    base: TestObjectMessage,
+    raw_packet: Vec<u8>,
+}
+
+impl TestStreamHeaderTrackMessage {
+    fn new() -> Self {
+        let mut base = TestObjectMessage::new(MessageType::StreamHeaderTrack);
+        // Some tests check that a FIN sent at the halfway point of a message results
+        // in an error. Without the unnecessary expanded varint 0x0405, the halfway
+        // point falls at the end of the Stream Header, which is legal. Expand the
+        // varint so that the FIN would be illegal.
+        let raw_packet = vec![
+            0x40, 0x50, // two byte type field
+            0x03, 0x04, 0x07, // varints
+            0x05, 0x06, // object middler
+            0x03, 0x66, 0x6f, 0x6f, // payload = "foo"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+        base.object_header.object_payload_length = Some(3);
+
+        Self { base, raw_packet }
+    }
+}
+
+impl Deref for TestStreamHeaderTrackMessage {
+    type Target = TestObjectMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestStreamHeaderTrackMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestStreamHeaderTrackMessage {
+    fn structured_data(&self) -> MessageStructuredData {
+        self.base.structured_data()
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        self.base.equal_field_values(values)
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("--vvvvvv".as_bytes()) // six one-byte varints
+    }
+}
+
+struct TestStreamMiddlerTrackMessage {
+    base: TestObjectMessage,
+    raw_packet: Vec<u8>,
+}
+
+impl TestStreamMiddlerTrackMessage {
+    fn new() -> Self {
+        let mut base = TestObjectMessage::new(MessageType::StreamHeaderTrack);
+        let raw_packet = vec![
+            0x09, 0x0a, // object middler
+            0x03, 0x62, 0x61, 0x72, // payload = "bar"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+        base.object_header.object_payload_length = Some(3);
+        base.object_header.group_id = 9;
+        base.object_header.object_id = 10;
+
+        Self { base, raw_packet }
+    }
+}
+
+impl Deref for TestStreamMiddlerTrackMessage {
+    type Target = TestObjectMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestStreamMiddlerTrackMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestStreamMiddlerTrackMessage {
+    fn structured_data(&self) -> MessageStructuredData {
+        self.base.structured_data()
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        self.base.equal_field_values(values)
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvv".as_bytes())
+    }
+}
+
+struct TestStreamHeaderGroupMessage {
+    base: TestObjectMessage,
+    raw_packet: Vec<u8>,
+}
+
+impl TestStreamHeaderGroupMessage {
+    fn new() -> Self {
+        let mut base = TestObjectMessage::new(MessageType::StreamHeaderGroup);
+        let raw_packet = vec![
+            0x40, 0x51, // two-byte type field
+            0x03, 0x04, 0x05, 0x07, // varints
+            0x06, 0x03, 0x66, 0x6f, 0x6f, // object middler; payload = "foo"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+        base.object_header.object_payload_length = Some(3);
+
+        Self { base, raw_packet }
+    }
+}
+
+impl Deref for TestStreamHeaderGroupMessage {
+    type Target = TestObjectMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestStreamHeaderGroupMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestStreamHeaderGroupMessage {
+    fn structured_data(&self) -> MessageStructuredData {
+        self.base.structured_data()
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        self.base.equal_field_values(values)
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("--vvvvvv".as_bytes()) // six one-byte varints
+    }
+}
+
+struct TestStreamMiddlerGroupMessage {
+    base: TestObjectMessage,
+    raw_packet: Vec<u8>,
+}
+
+impl TestStreamMiddlerGroupMessage {
+    fn new() -> Self {
+        let mut base = TestObjectMessage::new(MessageType::StreamHeaderGroup);
+        let raw_packet = vec![
+            0x09, 0x03, 0x62, 0x61, 0x72, // object middler; payload = "bar"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+        base.object_header.object_payload_length = Some(3);
+        base.object_header.object_id = 9;
+
+        Self { base, raw_packet }
+    }
+}
+
+impl Deref for TestStreamMiddlerGroupMessage {
+    type Target = TestObjectMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestStreamMiddlerGroupMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestStreamMiddlerGroupMessage {
+    fn structured_data(&self) -> MessageStructuredData {
+        self.base.structured_data()
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        self.base.equal_field_values(values)
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvv".as_bytes())
     }
 }

@@ -1,1 +1,137 @@
+use crate::message::message_parser::{MessageParser, ParserErrorCode};
+use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase};
+use crate::message::object::ObjectHeader;
+use crate::message::{ControlMessage, MessageType};
+use bytes::Bytes;
+use std::fmt::{Display, Formatter};
 
+static TEST_MESSAGE_TYPES: &[MessageType] = &[
+    MessageType::ObjectStream, // kObjectDatagram is a unique set of tests.
+    MessageType::Subscribe,
+    MessageType::SubscribeOk,
+    MessageType::SubscribeError,
+    MessageType::SubscribeUpdate,
+    MessageType::UnSubscribe,
+    MessageType::SubscribeDone,
+    MessageType::AnnounceCancel,
+    MessageType::TrackStatusRequest,
+    MessageType::TrackStatus,
+    MessageType::Announce,
+    MessageType::AnnounceOk,
+    MessageType::AnnounceError,
+    MessageType::UnAnnounce,
+    MessageType::ClientSetup,
+    MessageType::ServerSetup,
+    MessageType::StreamHeaderTrack,
+    MessageType::StreamHeaderGroup,
+    MessageType::GoAway,
+];
+
+struct TestParserParams {
+    message_type: MessageType,
+    uses_web_transport: bool,
+}
+
+impl Display for TestParserParams {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?}_{}",
+            self.message_type,
+            if self.uses_web_transport {
+                "WebTransport"
+            } else {
+                "QUIC"
+            }
+        )
+    }
+}
+
+impl TestParserParams {
+    fn new(message_type: MessageType, uses_web_transport: bool) -> Self {
+        Self {
+            message_type,
+            uses_web_transport,
+        }
+    }
+
+    fn get_test_parser_params() -> Vec<TestParserParams> {
+        let mut params = vec![];
+
+        let uses_web_transport_bool = vec![false, true];
+        for &message_type in TEST_MESSAGE_TYPES {
+            if message_type == MessageType::ClientSetup {
+                for uses_web_transport in &uses_web_transport_bool {
+                    params.push(TestParserParams::new(message_type, *uses_web_transport));
+                }
+            } else {
+                // All other types are processed the same for either perspective or
+                // transport.
+                params.push(TestParserParams::new(message_type, true));
+            }
+        }
+        params
+    }
+}
+
+struct TestParserVisitor {
+    object_payload: Option<Bytes>,
+    end_of_message: bool,
+    parsing_error: Option<String>,
+    parsing_error_code: ParserErrorCode,
+    messages_received: u64,
+    last_message: Option<MessageStructuredData>,
+}
+
+impl TestParserVisitor {
+    fn new() -> Self {
+        Self {
+            object_payload: None,
+            end_of_message: false,
+            parsing_error: None,
+            parsing_error_code: ParserErrorCode::NoError,
+            messages_received: 0,
+            last_message: None,
+        }
+    }
+
+    fn on_parsing_error(&mut self, code: ParserErrorCode, reason: String) {
+        self.parsing_error = Some(reason);
+        self.parsing_error_code = code;
+    }
+
+    fn on_object_message(&mut self, message: ObjectHeader, payload: Bytes, end_of_message: bool) {
+        self.object_payload = Some(payload);
+        self.end_of_message = end_of_message;
+        self.messages_received += 1;
+        self.last_message = Some(MessageStructuredData::Object(message));
+    }
+
+    fn on_control_message(&mut self, message: ControlMessage) {
+        self.end_of_message = true;
+        self.messages_received += 1;
+        self.last_message = Some(MessageStructuredData::Control(message));
+    }
+}
+
+struct TestParser {
+    visitor: TestParserVisitor,
+    message_type: MessageType,
+    uses_web_transport: bool,
+    parser: MessageParser,
+}
+
+impl TestParser {
+    fn new(params: &TestParserParams) -> Self {
+        Self {
+            visitor: TestParserVisitor::new(),
+            message_type: params.message_type,
+            uses_web_transport: params.uses_web_transport,
+            parser: MessageParser::new(params.uses_web_transport),
+        }
+    }
+
+    fn make_message(&self, message_type: MessageType) -> Box<dyn TestMessageBase> {
+        create_test_message(message_type, self.uses_web_transport)
+    }
+}
