@@ -1,7 +1,8 @@
-use crate::message::message_parser::{MessageParser, ParserErrorCode};
+use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
 use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase};
 use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, MessageType};
+use crate::Result;
 use bytes::Bytes;
 use std::fmt::{Display, Formatter};
 
@@ -54,24 +55,24 @@ impl TestParserParams {
             uses_web_transport,
         }
     }
+}
 
-    fn get_test_parser_params() -> Vec<TestParserParams> {
-        let mut params = vec![];
+fn get_test_parser_params() -> Vec<TestParserParams> {
+    let mut params = vec![];
 
-        let uses_web_transport_bool = vec![false, true];
-        for &message_type in TEST_MESSAGE_TYPES {
-            if message_type == MessageType::ClientSetup {
-                for uses_web_transport in &uses_web_transport_bool {
-                    params.push(TestParserParams::new(message_type, *uses_web_transport));
-                }
-            } else {
-                // All other types are processed the same for either perspective or
-                // transport.
-                params.push(TestParserParams::new(message_type, true));
+    let uses_web_transport_bool = vec![false, true];
+    for &message_type in TEST_MESSAGE_TYPES {
+        if message_type == MessageType::ClientSetup {
+            for uses_web_transport in &uses_web_transport_bool {
+                params.push(TestParserParams::new(message_type, *uses_web_transport));
             }
+        } else {
+            // All other types are processed the same for either perspective or
+            // transport.
+            params.push(TestParserParams::new(message_type, true));
         }
-        params
     }
+    params
 }
 
 struct TestParserVisitor {
@@ -92,6 +93,14 @@ impl TestParserVisitor {
             parsing_error_code: ParserErrorCode::NoError,
             messages_received: 0,
             last_message: None,
+        }
+    }
+
+    fn handle_event(&mut self, event: MessageParserEvent) {
+        match event {
+            MessageParserEvent::ParsingError(code, reason) => self.on_parsing_error(code, reason),
+            MessageParserEvent::ObjectMessage(message, payload, end_of_message) => self.on_object_message(message, payload, end_of_message),
+            MessageParserEvent::ControlMessage(message) => self.on_control_message(message),
         }
     }
 
@@ -131,7 +140,29 @@ impl TestParser {
         }
     }
 
-    fn make_message(&self, message_type: MessageType) -> Box<dyn TestMessageBase> {
-        create_test_message(message_type, self.uses_web_transport)
+    fn make_message(&self) -> Box<dyn TestMessageBase> {
+        create_test_message(self.message_type, self.uses_web_transport)
     }
+}
+
+#[test]
+fn test_parse_one_message() -> Result<()> {
+    for params in get_test_parser_params() {
+        let mut tester = TestParser::new(&params);
+
+        let message = tester.make_message();
+        tester.parser.process_data(&mut message.packet_sample(), true);
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
+        }
+        assert_eq!(1, tester.visitor.messages_received, "message type {:?}", tester.message_type);
+        assert!(message.equal_field_values(tester.visitor.last_message.as_ref().unwrap()));
+        assert!(tester.visitor.end_of_message);
+        if tester.message_type.is_object_message() {
+            // Check payload message.
+            assert!(tester.visitor.object_payload.is_some());
+            assert_eq!(tester.visitor.object_payload.as_ref().unwrap(), "foo");
+        }
+    }
+    Ok(())
 }

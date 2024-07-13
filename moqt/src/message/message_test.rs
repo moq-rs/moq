@@ -13,6 +13,8 @@ pub(crate) enum MessageStructuredData {
 // representation of an example of each message. It allows parser and framer
 // tests to iterate through all message types without much specialized code.
 pub(crate) trait TestMessageBase {
+    fn packet_sample(&self) -> &[u8];
+
     // Returns a copy of the structured data for the message.
     fn structured_data(&self) -> MessageStructuredData;
 
@@ -49,7 +51,7 @@ impl TestMessage {
         self.wire_image_size
     }
 
-    fn packet_sample(&self) -> &[u8] {
+    fn wire_image(&self) -> &[u8] {
         &self.wire_image[..self.wire_image_size]
     }
 
@@ -179,6 +181,10 @@ impl DerefMut for TestObjectMessage {
 }
 
 impl TestMessageBase for TestObjectMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         MessageStructuredData::Object(self.object_header)
     }
@@ -253,6 +259,10 @@ impl DerefMut for TestObjectStreamMessage {
 }
 
 impl TestMessageBase for TestObjectStreamMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         self.base.structured_data()
     }
@@ -298,6 +308,10 @@ impl DerefMut for TestObjectDatagramMessage {
 }
 
 impl TestMessageBase for TestObjectDatagramMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         self.base.structured_data()
     }
@@ -353,6 +367,10 @@ impl DerefMut for TestStreamHeaderTrackMessage {
 }
 
 impl TestMessageBase for TestStreamHeaderTrackMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         self.base.structured_data()
     }
@@ -402,6 +420,10 @@ impl DerefMut for TestStreamMiddlerTrackMessage {
 }
 
 impl TestMessageBase for TestStreamMiddlerTrackMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         self.base.structured_data()
     }
@@ -450,6 +472,10 @@ impl DerefMut for TestStreamHeaderGroupMessage {
 }
 
 impl TestMessageBase for TestStreamHeaderGroupMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         self.base.structured_data()
     }
@@ -497,6 +523,10 @@ impl DerefMut for TestStreamMiddlerGroupMessage {
 }
 
 impl TestMessageBase for TestStreamMiddlerGroupMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
     fn structured_data(&self) -> MessageStructuredData {
         self.base.structured_data()
     }
