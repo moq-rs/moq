@@ -1,3 +1,4 @@
+use crate::message::announce::Announce;
 use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
@@ -5,13 +6,13 @@ use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::{SubscribeError, SubscribeErrorCode};
 use crate::message::subscribe_ok::SubscribeOk;
+use crate::message::subscribe_update::SubscribeUpdate;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::message::{FilterType, FullSequence, Role};
 use crate::{Deserializer, Error, Result, Serializer, VarInt};
 use bytes::{Buf, BufMut};
 use std::ops::{Deref, DerefMut};
-use crate::message::subscribe_update::SubscribeUpdate;
 
 pub(crate) enum MessageStructuredData {
     Control(ControlMessage),
@@ -1122,7 +1123,6 @@ impl TestMessageBase for TestSubscribeDoneMessage {
     }
 }
 
-
 struct TestSubscribeUpdateMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
@@ -1179,7 +1179,9 @@ impl TestMessageBase for TestSubscribeUpdateMessage {
     }
 
     fn structured_data(&self) -> MessageStructuredData {
-        MessageStructuredData::Control(ControlMessage::SubscribeUpdate(self.subscribe_update.clone()))
+        MessageStructuredData::Control(ControlMessage::SubscribeUpdate(
+            self.subscribe_update.clone(),
+        ))
     }
 
     fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
@@ -1206,5 +1208,76 @@ impl TestMessageBase for TestSubscribeUpdateMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vvvvvvvvv---".as_bytes())
+    }
+}
+
+struct TestAnnounceMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    announce: Announce,
+}
+
+impl TestAnnounceMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::SubscribeDone);
+        let announce = Announce {
+            track_namespace: "foo".to_string(),
+            authorization_info: Some("bar".to_string()),
+        };
+        let raw_packet = vec![
+            0x06, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+            0x01, // 1 parameter
+            0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            announce,
+        }
+    }
+}
+
+impl Deref for TestAnnounceMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestAnnounceMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestAnnounceMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::Announce(self.announce.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::Announce(cast)) = values {
+            cast
+        } else {
+            return false;
+        };
+        if cast.track_namespace != self.announce.track_namespace {
+            return false;
+        }
+        if cast.authorization_info != self.announce.authorization_info {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---vvv---".as_bytes())
     }
 }
