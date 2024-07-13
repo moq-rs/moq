@@ -1,4 +1,5 @@
 use crate::message::announce::Announce;
+use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
@@ -1131,7 +1132,7 @@ struct TestSubscribeUpdateMessage {
 
 impl TestSubscribeUpdateMessage {
     fn new() -> Self {
-        let mut base = TestMessage::new(MessageType::SubscribeDone);
+        let mut base = TestMessage::new(MessageType::SubscribeUpdate);
         let subscribe_update = SubscribeUpdate {
             subscribe_id: 2,
             start_group_object: FullSequence {
@@ -1219,7 +1220,7 @@ struct TestAnnounceMessage {
 
 impl TestAnnounceMessage {
     fn new() -> Self {
-        let mut base = TestMessage::new(MessageType::SubscribeDone);
+        let mut base = TestMessage::new(MessageType::Announce);
         let announce = Announce {
             track_namespace: "foo".to_string(),
             authorization_info: Some("bar".to_string()),
@@ -1272,6 +1273,72 @@ impl TestMessageBase for TestAnnounceMessage {
             return false;
         }
         if cast.authorization_info != self.announce.authorization_info {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vv---vvv---".as_bytes())
+    }
+}
+
+struct TestAnnounceOkMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    announce_ok: AnnounceOk,
+}
+
+impl TestAnnounceOkMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::AnnounceOk);
+        let announce_ok = AnnounceOk {
+            track_namespace: "foo".to_string(),
+        };
+        let raw_packet = vec![
+            0x07, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            announce_ok,
+        }
+    }
+}
+
+impl Deref for TestAnnounceOkMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestAnnounceOkMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestAnnounceOkMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::AnnounceOk(self.announce_ok.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast = if let MessageStructuredData::Control(ControlMessage::AnnounceOk(cast)) = values
+        {
+            cast
+        } else {
+            return false;
+        };
+        if cast.track_namespace != self.announce_ok.track_namespace {
             return false;
         }
         true
