@@ -2,6 +2,7 @@ use crate::message::client_setup::ClientSetup;
 use crate::message::object::{ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
+use crate::message::subscribe_error::{SubscribeError, SubscribeErrorCode};
 use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::{ControlMessage, MessageType, Version, MAX_MESSSAGE_HEADER_SIZE};
 use crate::message::{FilterType, FullSequence, Role};
@@ -651,7 +652,7 @@ struct TestServerSetupMessage {
 
 impl TestServerSetupMessage {
     fn new() -> Self {
-        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let mut base = TestMessage::new(MessageType::ServerSetup);
         let server_setup = ServerSetup {
             supported_version: Version::Draft01,
             role: Role::PubSub,
@@ -724,7 +725,7 @@ struct TestSubscribeMessage {
 
 impl TestSubscribeMessage {
     fn new() -> Self {
-        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let mut base = TestMessage::new(MessageType::Subscribe);
         let subscribe = Subscribe {
             subscribe_id: 1,
             track_alias: 2,
@@ -820,7 +821,7 @@ struct TestSubscribeOkMessage {
 
 impl TestSubscribeOkMessage {
     fn new() -> Self {
-        let mut base = TestMessage::new(MessageType::ClientSetup);
+        let mut base = TestMessage::new(MessageType::SubscribeOk);
         let subscribe_ok = SubscribeOk {
             subscribe_id: 1,
             expires: 3,
@@ -887,5 +888,86 @@ impl TestMessageBase for TestSubscribeOkMessage {
 
     fn expand_varints(&mut self) -> Result<()> {
         self.expand_varints_impl("vvv-vv".as_bytes())
+    }
+}
+
+struct TestSubscribeErrorMessage {
+    base: TestMessage,
+    raw_packet: Vec<u8>,
+    subscribe_error: SubscribeError,
+}
+
+impl TestSubscribeErrorMessage {
+    fn new() -> Self {
+        let mut base = TestMessage::new(MessageType::SubscribeError);
+        let subscribe_error = SubscribeError {
+            subscribe_id: 2,
+            error_code: SubscribeErrorCode::InvalidRange as u64,
+            reason_phrase: "bar".to_string(),
+            track_alias: 4,
+        };
+        let raw_packet = vec![
+            0x05, 0x02, // subscribe_id = 2
+            0x01, // error_code = 1
+            0x03, 0x62, 0x61, 0x72, // reason_phrase = "bar"
+            0x04, // track_alias = 4,
+        ];
+        base.set_wire_image(&raw_packet, raw_packet.len());
+
+        Self {
+            base,
+            raw_packet,
+            subscribe_error,
+        }
+    }
+}
+
+impl Deref for TestSubscribeErrorMessage {
+    type Target = TestMessage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for TestSubscribeErrorMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
+}
+
+impl TestMessageBase for TestSubscribeErrorMessage {
+    fn packet_sample(&self) -> &[u8] {
+        self.wire_image()
+    }
+
+    fn structured_data(&self) -> MessageStructuredData {
+        MessageStructuredData::Control(ControlMessage::SubscribeError(self.subscribe_error.clone()))
+    }
+
+    fn equal_field_values(&self, values: &MessageStructuredData) -> bool {
+        let cast =
+            if let MessageStructuredData::Control(ControlMessage::SubscribeError(cast)) = values {
+                cast
+            } else {
+                return false;
+            };
+        if cast.subscribe_id != self.subscribe_error.subscribe_id {
+            return false;
+        }
+        if cast.error_code != self.subscribe_error.error_code {
+            return false;
+        }
+        if cast.reason_phrase != self.subscribe_error.reason_phrase {
+            return false;
+        }
+        if cast.track_alias != self.subscribe_error.track_alias {
+            return false;
+        }
+        true
+    }
+
+    fn expand_varints(&mut self) -> Result<()> {
+        self.expand_varints_impl("vvvv---v".as_bytes())
     }
 }
