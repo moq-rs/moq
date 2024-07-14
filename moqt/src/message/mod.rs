@@ -4,6 +4,7 @@ use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::go_away::GoAway;
+use crate::message::message_parser::ParserErrorCode;
 use crate::message::object::ObjectForwardingPreference;
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
@@ -120,7 +121,10 @@ impl TryFrom<u64> for MessageType {
             0x41 => Ok(MessageType::ServerSetup),
             0x50 => Ok(MessageType::StreamHeaderTrack),
             0x51 => Ok(MessageType::StreamHeaderGroup),
-            _ => Err(Error::ErrInvalidMessageType(value)),
+            _ => Err(Error::ErrParseError(
+                ParserErrorCode::ProtocolViolation,
+                format!("Unknown message type 0x{:x}", value),
+            )),
         }
     }
 }

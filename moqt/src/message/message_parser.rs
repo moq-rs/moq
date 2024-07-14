@@ -203,7 +203,12 @@ impl MessageParser {
         let mut mt_reader = self.buffered_message.as_ref();
         let message_type = match MessageType::deserialize(&mut mt_reader) {
             Ok((message_type, _)) => message_type,
-            Err(_) => return 0,
+            Err(err) => {
+                if let Error::ErrParseError(code, reason) = err {
+                    self.parse_error(code, reason);
+                }
+                return 0;
+            }
         };
 
         if message_type == MessageType::ObjectDatagram {

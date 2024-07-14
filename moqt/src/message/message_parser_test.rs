@@ -1414,25 +1414,27 @@ fn test_setup2kb() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_UnknownMessageType() -> Result<()> {
+fn test_unknown_message_type() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char message[4];
-  quic::QuicDataWriter writer(sizeof(message), message);
-  writer.WriteVarInt62(0xbeef);  // unknown message type
-  parser.process_data(absl::string_view(message, writer.length()), false);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let mut writer = vec![];
+    0xbeefu64.serialize(&mut writer)?; // unknown message type
+    parser.process_data(&mut &writer[..], false);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "Unknown message type");
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Unknown message type 0xbeef".to_string())
+    );
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_LatestGroup() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
