@@ -1,9 +1,13 @@
 use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
-use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase, TestObjectDatagramMessage, TestObjectStreamMessage, TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage};
+use crate::message::message_test::{
+    create_test_message, MessageStructuredData, TestMessageBase, TestObjectDatagramMessage,
+    TestObjectStreamMessage, TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage,
+    TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage, TestSubscribeDoneMessage,
+    TestSubscribeOkMessage,
+};
 use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, FilterType, MessageType, MAX_MESSSAGE_HEADER_SIZE};
-use crate::Error::ErrInvalidMessageType;
-use crate::{Result, Serializer};
+use crate::{Error, Result, Serializer};
 use bytes::Bytes;
 use rstest::rstest;
 use std::fmt::{Display, Formatter};
@@ -1456,7 +1460,7 @@ fn test_latest_group() -> Result<()> {
         message
     } else {
         assert!(false);
-        return Err(ErrInvalidMessageType(0));
+        return Err(Error::ErrInvalidMessageType(0));
     };
     if let FilterType::LatestGroup = message.filter_type {
         assert!(true);
@@ -1491,7 +1495,7 @@ fn test_latest_object() -> Result<()> {
         message
     } else {
         assert!(false);
-        return Err(ErrInvalidMessageType(0));
+        return Err(Error::ErrInvalidMessageType(0));
     };
     if let FilterType::LatestObject = message.filter_type {
         assert!(true);
@@ -1528,7 +1532,7 @@ fn test_absolute_start() -> Result<()> {
         message
     } else {
         assert!(false);
-        return Err(ErrInvalidMessageType(0));
+        return Err(Error::ErrInvalidMessageType(0));
     };
     if let FilterType::AbsoluteStart(start) = message.filter_type {
         assert_eq!(start.group_id, 4);
@@ -1568,7 +1572,7 @@ fn test_absolute_range_explicit_end_object() -> Result<()> {
         message
     } else {
         assert!(false);
-        return Err(ErrInvalidMessageType(0));
+        return Err(Error::ErrInvalidMessageType(0));
     };
     if let FilterType::AbsoluteRange(start, end) = message.filter_type {
         assert_eq!(start.group_id, 4);
@@ -1610,7 +1614,7 @@ fn test_absolute_range_whole_end_group() -> Result<()> {
         message
     } else {
         assert!(false);
-        return Err(ErrInvalidMessageType(0));
+        return Err(Error::ErrInvalidMessageType(0));
     };
     if let FilterType::AbsoluteRange(start, end) = message.filter_type {
         assert_eq!(start.group_id, 4);
@@ -1877,74 +1881,80 @@ fn test_datagram_successful() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_WrongMessageInDatagram() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  ObjectStreamMessage message;
-  MoqtObject object;
-  absl::string_view payload =
-      MoqtParser::process_datagram(message.packet_sample(), object);
-  assert!(payload.empty());
+fn test_wrong_message_in_datagram() -> Result<()> {
+    let message = TestObjectStreamMessage::new();
+    let result = MessageParser::process_datagram(&mut message.packet_sample());
+    assert!(result.is_err());
+    assert_eq!(
+        Err(Error::ErrParseError(
+            ParserErrorCode::ProtocolViolation,
+            "invalid datagram".to_string(),
+        )),
+        result
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_TruncatedDatagram() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  ObjectDatagramMessage message;
-  message.set_wire_image_size(4);
-  MoqtObject object;
-  absl::string_view payload =
-      MoqtParser::process_datagram(message.packet_sample(), object);
-  assert!(payload.empty());
+fn test_truncated_datagram() -> Result<()> {
+    let mut message = TestObjectDatagramMessage::new();
+    message.set_wire_image_size(4);
+    let result = MessageParser::process_datagram(&mut message.packet_sample());
+    assert!(result.is_err());
+    assert_eq!(Err(Error::ErrUnexpectedEnd), result);
 
     Ok(())
 }
 
 #[test]
-fn test_VeryTruncatedDatagram() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char message = 0x40;
-  MoqtObject object;
-  absl::string_view payload = MoqtParser::process_datagram(
-      absl::string_view(&message, sizeof(message)), object);
-  assert!(payload.empty());
+fn test_very_truncated_datagram() -> Result<()> {
+    let message = vec![0x40];
+    let result = MessageParser::process_datagram(&mut &message[..]);
+    assert!(result.is_err());
+    assert_eq!(Err(Error::ErrUnexpectedEnd), result);
 
     Ok(())
 }
 
 #[test]
-fn test_SubscribeOkInvalidContentExists() -> Result<()> {
+fn test_subscribe_ok_invalid_content_exists() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  SubscribeOkMessage subscribe_ok;
-  subscribe_ok.SetInvalidContentExists();
-  parser.process_data(subscribe_ok.packet_sample(), false);
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "SUBSCRIBE_OK ContentExists has invalid value");
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let mut subscribe_ok = TestSubscribeOkMessage::new();
+    subscribe_ok.set_invalid_content_exists();
+    parser.process_data(&mut subscribe_ok.packet_sample(), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("SUBSCRIBE_OK ContentExists has invalid value 2".to_string())
+    );
 
     Ok(())
 }
 
 #[test]
-fn test_SubscribeDoneInvalidContentExists() -> Result<()> {
+fn test_subscribe_done_invalid_content_exists() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  SubscribeDoneMessage subscribe_done;
-  subscribe_done.SetInvalidContentExists();
-  parser.process_data(subscribe_done.packet_sample(), false);
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "SUBSCRIBE_DONE ContentExists has invalid value");
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let mut subscribe_done = TestSubscribeDoneMessage::new();
+    subscribe_done.set_invalid_content_exists();
+    parser.process_data(&mut subscribe_done.packet_sample(), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("SUBSCRIBE_DONE ContentExists has invalid value 2".to_string())
+    );
 
     Ok(())
 }
- */

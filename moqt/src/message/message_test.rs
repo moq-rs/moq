@@ -870,6 +870,14 @@ impl TestSubscribeOkMessage {
             subscribe_ok,
         }
     }
+
+    pub(crate) fn set_invalid_content_exists(&mut self) {
+        self.raw_packet[3] = 0x02;
+        let size = self.raw_packet.len();
+        let raw = self.raw_packet.clone();
+        self.wire_image[..size].copy_from_slice(&raw[..size]);
+        self.wire_image_size = size;
+    }
 }
 
 impl Deref for TestSubscribeOkMessage {
@@ -1094,6 +1102,14 @@ impl TestSubscribeDoneMessage {
             raw_packet,
             subscribe_done,
         }
+    }
+
+    pub(crate) fn set_invalid_content_exists(&mut self) {
+        self.raw_packet[6] = 0x02;
+        let size = self.raw_packet.len();
+        let raw = self.raw_packet.clone();
+        self.wire_image[..size].copy_from_slice(&raw[..size]);
+        self.wire_image_size = size;
     }
 }
 

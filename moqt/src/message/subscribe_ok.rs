@@ -1,5 +1,6 @@
+use crate::message::message_parser::ParserErrorCode;
 use crate::message::FullSequence;
-use crate::{Deserializer, Result, Serializer};
+use crate::{Deserializer, Error, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
@@ -17,7 +18,16 @@ impl Deserializer for SubscribeOk {
 
         let (expires, el) = u64::deserialize(r)?;
 
-        let (exist, l) = bool::deserialize(r)?;
+        let (exist, l) = bool::deserialize(r).map_err(|err| {
+            if let Error::ErrInvalidBooleanValue(b) = err {
+                Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    format!("SUBSCRIBE_OK ContentExists has invalid value {}", b),
+                )
+            } else {
+                err
+            }
+        })?;
         let mut tl = sil + el + l;
         let largest_group_object = if exist {
             let (largest_group_object, lgol) = FullSequence::deserialize(r)?;

@@ -1,5 +1,6 @@
+use crate::message::message_parser::ParserErrorCode;
 use crate::message::FullSequence;
-use crate::{Deserializer, Result, Serializer};
+use crate::{Deserializer, Error, Result, Serializer};
 use bytes::{Buf, BufMut};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
@@ -31,7 +32,16 @@ impl Deserializer for SubscribeDone {
         let (status_code, scl) = u64::deserialize(r)?;
         let (reason_phrase, rpl) = String::deserialize(r)?;
 
-        let (exist, el) = bool::deserialize(r)?;
+        let (exist, el) = bool::deserialize(r).map_err(|err| {
+            if let Error::ErrInvalidBooleanValue(b) = err {
+                Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    format!("SUBSCRIBE_DONE ContentExists has invalid value {}", b),
+                )
+            } else {
+                err
+            }
+        })?;
         let mut tl = sil + scl + rpl + el;
         let final_group_object = if exist {
             let (final_group_object, fgol) = FullSequence::deserialize(r)?;
