@@ -22,10 +22,10 @@ impl Deserializer for SubscribeUpdate {
         let (start, sgol) = FullSequence::deserialize(r)?;
         let (end, egol) = FullSequence::deserialize(r)?;
 
-        let end_group_object = if end.group_id == 0 {
+        let end = if end.group_id == 0 {
             None
         } else {
-            let end_group_object = if end.object_id == 0 {
+            let end = if end.object_id == 0 {
                 FullSequence {
                     group_id: end.group_id - 1,
                     object_id: u64::MAX,
@@ -49,7 +49,7 @@ impl Deserializer for SubscribeUpdate {
                 ));
             }
 
-            Some(end_group_object)
+            Some(end)
         };
 
         let mut authorization_info: Option<String> = None;
@@ -86,7 +86,7 @@ impl Deserializer for SubscribeUpdate {
                 subscribe_id,
 
                 start_group_object: start,
-                end_group_object,
+                end_group_object: end,
 
                 authorization_info,
             },
