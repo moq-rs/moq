@@ -4,29 +4,8 @@ use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, MessageType};
 use crate::Result;
 use bytes::Bytes;
+use rstest::rstest;
 use std::fmt::{Display, Formatter};
-
-static TEST_MESSAGE_TYPES: &[MessageType] = &[
-    MessageType::ObjectStream, // ObjectDatagram is a unique set of tests.
-    MessageType::StreamHeaderTrack,
-    MessageType::StreamHeaderGroup,
-    MessageType::Subscribe,
-    MessageType::SubscribeOk,
-    MessageType::SubscribeError,
-    MessageType::UnSubscribe,
-    MessageType::SubscribeDone,
-    MessageType::SubscribeUpdate,
-    MessageType::Announce,
-    MessageType::AnnounceOk,
-    MessageType::AnnounceError,
-    MessageType::AnnounceCancel,
-    MessageType::UnAnnounce,
-    MessageType::TrackStatusRequest,
-    MessageType::TrackStatus,
-    MessageType::ClientSetup,
-    MessageType::ServerSetup,
-    MessageType::GoAway,
-];
 
 struct TestParserParams {
     message_type: MessageType,
@@ -55,24 +34,6 @@ impl TestParserParams {
             uses_web_transport,
         }
     }
-}
-
-fn get_test_parser_params() -> Vec<TestParserParams> {
-    let mut params = vec![];
-
-    let uses_web_transport_bool = vec![false, true];
-    for &message_type in TEST_MESSAGE_TYPES {
-        if message_type == MessageType::ClientSetup {
-            for uses_web_transport in &uses_web_transport_bool {
-                params.push(TestParserParams::new(message_type, *uses_web_transport));
-            }
-        } else {
-            // All other types are processed the same for either perspective or
-            // transport.
-            params.push(TestParserParams::new(message_type, true));
-        }
-    }
-    params
 }
 
 struct TestParserVisitor {
@@ -147,325 +108,435 @@ impl TestParser {
     }
 }
 
-#[test]
-fn test_parse_one_message() -> Result<()> {
-    for params in get_test_parser_params() {
-        let mut tester = TestParser::new(&params);
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_parse_one_message(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
 
-        let message = tester.make_message();
-        tester
-            .parser
-            .process_data(&mut message.packet_sample(), true);
-        while let Some(event) = tester.parser.poll_event() {
-            tester.visitor.handle_event(event);
-        }
-        assert_eq!(
-            1, tester.visitor.messages_received,
-            "message type {:?}",
-            tester.message_type
-        );
-        let last_message = tester.visitor.last_message.as_ref().unwrap();
-        assert!(
-            message.equal_field_values(last_message),
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            tester.visitor.end_of_message,
-            "message type {:?}",
-            tester.message_type
-        );
-        if tester.message_type.is_object_message() {
-            // Check payload message.
-            assert!(
-                tester.visitor.object_payload.is_some(),
-                "message type {:?}",
-                tester.message_type
-            );
-            assert_eq!(
-                "foo",
-                tester.visitor.object_payload.as_ref().unwrap(),
-                "message type {:?}",
-                tester.message_type
-            );
-        }
+    let message = tester.make_message();
+    tester
+        .parser
+        .process_data(&mut message.packet_sample(), true);
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
     }
-    Ok(())
-}
-
-#[test]
-fn test_one_message_with_long_varints() -> Result<()> {
-    for params in get_test_parser_params() {
-        let mut tester = TestParser::new(&params);
-
-        let mut message = tester.make_message();
+    assert_eq!(
+        1, tester.visitor.messages_received,
+        "message type {:?}",
+        tester.message_type
+    );
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(
+        message.equal_field_values(last_message),
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        tester.visitor.end_of_message,
+        "message type {:?}",
+        tester.message_type
+    );
+    if tester.message_type.is_object_message() {
+        // Check payload message.
         assert!(
-            message.expand_varints().is_ok(),
+            tester.visitor.object_payload.is_some(),
             "message type {:?}",
             tester.message_type
         );
-        tester
-            .parser
-            .process_data(&mut message.packet_sample(), true);
-        while let Some(event) = tester.parser.poll_event() {
-            tester.visitor.handle_event(event);
-        }
         assert_eq!(
-            1, tester.visitor.messages_received,
-            "message type {:?}",
-            tester.message_type
-        );
-        let last_message = tester.visitor.last_message.as_ref().unwrap();
-        assert!(
-            message.equal_field_values(last_message),
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            tester.visitor.end_of_message,
-            "message type {:?}",
-            tester.message_type
-        );
-        if tester.message_type.is_object_message() {
-            // Check payload message.
-            assert_eq!(
-                "foo",
-                tester.visitor.object_payload.as_ref().unwrap(),
-                "message type {:?}",
-                tester.message_type
-            );
-        }
-        assert!(
-            !tester.visitor.parsing_error.is_some(),
+            "foo",
+            tester.visitor.object_payload.as_ref().unwrap(),
             "message type {:?}",
             tester.message_type
         );
     }
+
     Ok(())
 }
 
-#[test]
-fn test_two_part_message() -> Result<()> {
-    for params in get_test_parser_params() {
-        let mut tester = TestParser::new(&params);
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_one_message_with_long_varints(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
 
-        let message = tester.make_message();
-        let total_message_size = message.packet_sample().len();
-        // The test Object message has payload for less then half the message length,
-        // so splitting the message in half will prevent the first half from being
-        // processed.
-        let mut first_data_size = total_message_size / 2;
-        if tester.message_type == MessageType::StreamHeaderTrack {
-            // The boundary happens to fall right after the stream header, so move it.
-            first_data_size += 1;
-        }
-        tester
-            .parser
-            .process_data(&mut &message.packet_sample()[..first_data_size], false);
-        while let Some(event) = tester.parser.poll_event() {
-            tester.visitor.handle_event(event);
-        }
+    let mut message = tester.make_message();
+    assert!(
+        message.expand_varints().is_ok(),
+        "message type {:?}",
+        tester.message_type
+    );
+    tester
+        .parser
+        .process_data(&mut message.packet_sample(), true);
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(
+        1, tester.visitor.messages_received,
+        "message type {:?}",
+        tester.message_type
+    );
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(
+        message.equal_field_values(last_message),
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        tester.visitor.end_of_message,
+        "message type {:?}",
+        tester.message_type
+    );
+    if tester.message_type.is_object_message() {
+        // Check payload message.
         assert_eq!(
-            0, tester.visitor.messages_received,
-            "message type {:?}",
-            tester.message_type
-        );
-        tester.parser.process_data(
-            &mut &message.packet_sample()[first_data_size..total_message_size],
-            true,
-        );
-        while let Some(event) = tester.parser.poll_event() {
-            tester.visitor.handle_event(event);
-        }
-        assert_eq!(
-            1, tester.visitor.messages_received,
-            "message type {:?}",
-            tester.message_type
-        );
-
-        let last_message = tester.visitor.last_message.as_ref().unwrap();
-        assert!(
-            message.equal_field_values(last_message),
-            "message type {:?}",
-            tester.message_type
-        );
-        if tester.message_type.is_object_message() {
-            assert_eq!(
-                "foo",
-                tester.visitor.object_payload.as_ref().unwrap(),
-                "message type {:?}",
-                tester.message_type
-            );
-        }
-        assert!(
-            tester.visitor.end_of_message,
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            !tester.visitor.parsing_error.is_some(),
+            "foo",
+            tester.visitor.object_payload.as_ref().unwrap(),
             "message type {:?}",
             tester.message_type
         );
     }
+    assert!(
+        !tester.visitor.parsing_error.is_some(),
+        "message type {:?}",
+        tester.message_type
+    );
+
     Ok(())
 }
 
-#[test]
-fn test_one_byte_at_atime() -> Result<()> {
-    for params in get_test_parser_params() {
-        let mut tester = TestParser::new(&params);
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_two_part_message(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
 
-        let message = tester.make_message();
-        let total_message_size = message.packet_sample().len();
-        let object_payload_size = 3;
-        for i in 0..total_message_size {
-            if !tester.message_type.is_object_message() {
-                assert_eq!(
-                    0, tester.visitor.messages_received,
-                    "message type {:?} at {}-th byte of {} bytes",
-                    tester.message_type, i, total_message_size
-                );
-            }
-            assert!(
-                !tester.visitor.end_of_message,
-                "message type {:?}",
-                tester.message_type
+    let message = tester.make_message();
+    let total_message_size = message.packet_sample().len();
+    // The test Object message has payload for less then half the message length,
+    // so splitting the message in half will prevent the first half from being
+    // processed.
+    let mut first_data_size = total_message_size / 2;
+    if tester.message_type == MessageType::StreamHeaderTrack {
+        // The boundary happens to fall right after the stream header, so move it.
+        first_data_size += 1;
+    }
+    tester
+        .parser
+        .process_data(&mut &message.packet_sample()[..first_data_size], false);
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(
+        0, tester.visitor.messages_received,
+        "message type {:?}",
+        tester.message_type
+    );
+    tester.parser.process_data(
+        &mut &message.packet_sample()[first_data_size..total_message_size],
+        true,
+    );
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(
+        1, tester.visitor.messages_received,
+        "message type {:?}",
+        tester.message_type
+    );
+
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(
+        message.equal_field_values(last_message),
+        "message type {:?}",
+        tester.message_type
+    );
+    if tester.message_type.is_object_message() {
+        assert_eq!(
+            "foo",
+            tester.visitor.object_payload.as_ref().unwrap(),
+            "message type {:?}",
+            tester.message_type
+        );
+    }
+    assert!(
+        tester.visitor.end_of_message,
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        !tester.visitor.parsing_error.is_some(),
+        "message type {:?}",
+        tester.message_type
+    );
+
+    Ok(())
+}
+
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_one_byte_at_atime(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
+
+    let message = tester.make_message();
+    let total_message_size = message.packet_sample().len();
+    let object_payload_size = 3;
+    for i in 0..total_message_size {
+        if !tester.message_type.is_object_message() {
+            assert_eq!(
+                0, tester.visitor.messages_received,
+                "message type {:?} at {}-th byte of {} bytes",
+                tester.message_type, i, total_message_size
             );
-            tester
-                .parser
-                .process_data(&mut &message.packet_sample()[i..i + 1], false);
-            while let Some(event) = tester.parser.poll_event() {
-                tester.visitor.handle_event(event);
-            }
+        }
+        assert!(
+            !tester.visitor.end_of_message,
+            "message type {:?}",
+            tester.message_type
+        );
+        tester
+            .parser
+            .process_data(&mut &message.packet_sample()[i..i + 1], false);
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
+        }
+    }
+    assert_eq!(
+        if tester.message_type.is_object_message() {
+            object_payload_size + 1
+        } else {
+            1
+        },
+        tester.visitor.messages_received,
+        "message type {:?}",
+        tester.message_type
+    );
+    if tester.message_type.is_object_without_payload_length() {
+        assert!(
+            !tester.visitor.end_of_message,
+            "message type {:?}",
+            tester.message_type
+        );
+        let empty: Vec<u8> = vec![];
+        tester.parser.process_data(&mut &empty[..], true); // Needs the FIN
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
         }
         assert_eq!(
-            if tester.message_type.is_object_message() {
-                object_payload_size + 1
-            } else {
-                1
-            },
+            object_payload_size + 2,
             tester.visitor.messages_received,
             "message type {:?}",
             tester.message_type
         );
-        if tester.message_type.is_object_without_payload_length() {
-            assert!(
-                !tester.visitor.end_of_message,
-                "message type {:?}",
-                tester.message_type
-            );
-            let empty: Vec<u8> = vec![];
-            tester.parser.process_data(&mut &empty[..], true); // Needs the FIN
-            while let Some(event) = tester.parser.poll_event() {
-                tester.visitor.handle_event(event);
-            }
-            assert_eq!(
-                object_payload_size + 2,
-                tester.visitor.messages_received,
-                "message type {:?}",
-                tester.message_type
-            );
-        }
-        let last_message = tester.visitor.last_message.as_ref().unwrap();
-        assert!(
-            message.equal_field_values(last_message),
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            tester.visitor.end_of_message,
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            !tester.visitor.parsing_error.is_some(),
-            "message type {:?}",
-            tester.message_type
-        );
     }
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(
+        message.equal_field_values(last_message),
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        tester.visitor.end_of_message,
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        !tester.visitor.parsing_error.is_some(),
+        "message type {:?}",
+        tester.message_type
+    );
+
     Ok(())
 }
 
-#[test]
-fn test_one_byte_at_a_time_longer_varints() -> Result<()> {
-    for params in get_test_parser_params() {
-        let mut tester = TestParser::new(&params);
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_one_byte_at_a_time_longer_varints(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
 
-        let mut message = tester.make_message();
-        assert!(
-            message.expand_varints().is_ok(),
-            "message type {:?}",
-            tester.message_type
-        );
+    let mut message = tester.make_message();
+    assert!(
+        message.expand_varints().is_ok(),
+        "message type {:?}",
+        tester.message_type
+    );
 
-        let total_message_size = message.packet_sample().len();
-        let object_payload_size = 3;
-        for i in 0..total_message_size {
-            if !tester.message_type.is_object_message() {
-                assert_eq!(
-                    0, tester.visitor.messages_received,
-                    "message type {:?}",
-                    tester.message_type
-                );
-            }
-            assert!(
-                !tester.visitor.end_of_message,
+    let total_message_size = message.packet_sample().len();
+    let object_payload_size = 3;
+    for i in 0..total_message_size {
+        if !tester.message_type.is_object_message() {
+            assert_eq!(
+                0, tester.visitor.messages_received,
                 "message type {:?}",
                 tester.message_type
             );
-            tester
-                .parser
-                .process_data(&mut &message.packet_sample()[i..i + 1], false);
-            while let Some(event) = tester.parser.poll_event() {
-                tester.visitor.handle_event(event);
-            }
+        }
+        assert!(
+            !tester.visitor.end_of_message,
+            "message type {:?}",
+            tester.message_type
+        );
+        tester
+            .parser
+            .process_data(&mut &message.packet_sample()[i..i + 1], false);
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
+        }
+    }
+    assert_eq!(
+        if tester.message_type.is_object_message() {
+            object_payload_size + 1
+        } else {
+            1
+        },
+        tester.visitor.messages_received,
+        "message type {:?}",
+        tester.message_type
+    );
+    if tester.message_type.is_object_without_payload_length() {
+        assert!(
+            !tester.visitor.end_of_message,
+            "message type {:?}",
+            tester.message_type
+        );
+        let empty: Vec<u8> = vec![];
+        tester.parser.process_data(&mut &empty[..], true); // Needs the FIN
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
         }
         assert_eq!(
-            if tester.message_type.is_object_message() {
-                object_payload_size + 1
-            } else {
-                1
-            },
+            object_payload_size + 2,
             tester.visitor.messages_received,
             "message type {:?}",
             tester.message_type
         );
-        if tester.message_type.is_object_without_payload_length() {
-            assert!(
-                !tester.visitor.end_of_message,
-                "message type {:?}",
-                tester.message_type
-            );
-            let empty: Vec<u8> = vec![];
-            tester.parser.process_data(&mut &empty[..], true); // Needs the FIN
-            while let Some(event) = tester.parser.poll_event() {
-                tester.visitor.handle_event(event);
-            }
-            assert_eq!(
-                object_payload_size + 2,
-                tester.visitor.messages_received,
-                "message type {:?}",
-                tester.message_type
-            );
-        }
-        let last_message = tester.visitor.last_message.as_ref().unwrap();
-        assert!(
-            message.equal_field_values(last_message),
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            tester.visitor.end_of_message,
-            "message type {:?}",
-            tester.message_type
-        );
-        assert!(
-            !tester.visitor.parsing_error.is_some(),
-            "message type {:?}",
-            tester.message_type
-        );
     }
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(
+        message.equal_field_values(last_message),
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        tester.visitor.end_of_message,
+        "message type {:?}",
+        tester.message_type
+    );
+    assert!(
+        !tester.visitor.parsing_error.is_some(),
+        "message type {:?}",
+        tester.message_type
+    );
+
     Ok(())
 }
 /*
