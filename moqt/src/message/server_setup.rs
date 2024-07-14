@@ -17,7 +17,9 @@ impl Deserializer for ServerSetup {
         let role: Role = parameters
             .remove(ParameterKey::Role)
             .map_err(|err| Error::ErrProtocolViolation(err.to_string()))?
-            .ok_or(Error::ErrMissingParameter)?;
+            .ok_or(Error::ErrProtocolViolation(
+                "ROLE parameter missing".to_string(),
+            ))?;
 
         Ok((
             Self {

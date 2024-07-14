@@ -973,29 +973,34 @@ fn test_setup_role_appears_twice() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_ClientSetupRoleIsMissing() -> Result<()> {
+fn test_client_setup_role_is_missing() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
-      0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
-      0x01,                          // 1 param
-      0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
-  };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let setup = vec![
+        0x40, 0x40, 0x02, 0x01, 0x02, // versions = 1, 2
+        0x01, // 1 param
+        0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
+    ];
+    parser.process_data(&mut &setup[..], false);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
-            "ROLE parameter missing from CLIENT_SETUP message");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("ROLE parameter missing".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_ServerSetupRoleIsMissing() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
