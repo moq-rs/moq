@@ -36,8 +36,6 @@ pub enum Error {
     ErrNonEmptyPayloadMustBeWithNormalObjectStatus,
     #[error("protocol violation: {0}")]
     ErrProtocolViolation(String),
-    #[error("parse error: {0}")]
-    ErrParseError(String),
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),

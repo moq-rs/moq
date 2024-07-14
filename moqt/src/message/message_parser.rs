@@ -213,7 +213,7 @@ impl MessageParser {
             {
                 Ok((control_message, message_len)) => (control_message, message_len),
                 Err(err) => {
-                    if let Error::ErrParseError(reason) = err {
+                    if let Error::ErrProtocolViolation(reason) = err {
                         self.parse_error(ParserErrorCode::ProtocolViolation, reason);
                     }
                     return 0;
