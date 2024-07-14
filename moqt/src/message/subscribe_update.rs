@@ -22,7 +22,8 @@ impl Deserializer for SubscribeUpdate {
         let (end_group_object, egol) = FullSequence::deserialize(r)?;
 
         let (mut parameters, pl) = Parameters::deserialize(r)?;
-        let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
+        let authorization_info: Option<String> =
+            parameters.remove(ParameterKey::AuthorizationInfo)?;
 
         Ok((
             Self {

@@ -116,12 +116,13 @@ impl Parameters {
         self.0.contains_key(&(key as u64))
     }
 
-    pub fn remove<P: Deserializer>(&mut self, key: ParameterKey) -> Option<P> {
+    pub fn remove<P: Deserializer>(&mut self, key: ParameterKey) -> Result<Option<P>> {
         if let Some(value) = self.0.remove(&(key as u64)) {
             let mut cursor = Cursor::new(value);
-            P::deserialize(&mut cursor).ok().map(|v| v.0)
+            let (p, _) = P::deserialize(&mut cursor)?;
+            Ok(Some(p))
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -148,14 +149,14 @@ mod test {
         assert!(params.contains(ParameterKey::Path));
         assert!(params.contains(ParameterKey::AuthorizationInfo));
 
-        assert_eq!(Some(Role::PubSub), params.remove(ParameterKey::Role));
+        assert_eq!(Some(Role::PubSub), params.remove(ParameterKey::Role)?);
         assert_eq!(
             Some("/moq/1".to_string()),
-            params.remove(ParameterKey::Path)
+            params.remove(ParameterKey::Path)?
         );
         assert_eq!(
             Some("password".to_string()),
-            params.remove(ParameterKey::AuthorizationInfo)
+            params.remove(ParameterKey::AuthorizationInfo)?
         );
         Ok(())
     }

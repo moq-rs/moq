@@ -1,5 +1,9 @@
 use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
-use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase, TestObjectStreamMessage, TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage};
+use crate::message::message_test::{
+    create_test_message, MessageStructuredData, TestMessageBase, TestObjectStreamMessage,
+    TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage,
+    TestStreamMiddlerTrackMessage,
+};
 use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, MessageType};
 use crate::Result;
@@ -821,7 +825,10 @@ fn test_stream_header_group_follow_on() -> Result<()> {
     assert!(message1.equal_field_values(last_message));
     assert!(tester.visitor.end_of_message);
     assert!(tester.visitor.object_payload.is_some());
-    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"foo")));
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"foo"))
+    );
     assert!(!tester.visitor.parsing_error.is_some());
     // second part
     let message2 = TestStreamMiddlerGroupMessage::new();
@@ -834,12 +841,14 @@ fn test_stream_header_group_follow_on() -> Result<()> {
     assert!(message2.equal_field_values(last_message));
     assert!(tester.visitor.end_of_message);
     assert!(tester.visitor.object_payload.is_some());
-    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"bar")));
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"bar"))
+    );
     assert!(!tester.visitor.parsing_error.is_some());
 
     Ok(())
 }
-
 
 #[test]
 fn test_stream_header_track_follow_on() -> Result<()> {
@@ -856,7 +865,10 @@ fn test_stream_header_track_follow_on() -> Result<()> {
     assert!(message1.equal_field_values(last_message));
     assert!(tester.visitor.end_of_message);
     assert!(tester.visitor.object_payload.is_some());
-    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"foo")));
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"foo"))
+    );
     assert!(!tester.visitor.parsing_error.is_some());
     // second part
     let message2 = TestStreamMiddlerTrackMessage::new();
@@ -869,34 +881,43 @@ fn test_stream_header_track_follow_on() -> Result<()> {
     assert!(message2.equal_field_values(last_message));
     assert!(tester.visitor.end_of_message);
     assert!(tester.visitor.object_payload.is_some());
-    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"bar")));
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"bar"))
+    );
     assert!(!tester.visitor.parsing_error.is_some());
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_ClientSetupRoleIsInvalid() -> Result<()> {
+fn test_client_setup_role_is_invalid() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
-      0x40, 0x40, 0x02, 0x01, 0x02,  // versions
-      0x03,                          // 3 params
-      0x00, 0x01, 0x04,              // role = invalid
-      0x01, 0x03, 0x66, 0x6f, 0x6f   // path = "foo"
-  };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let setup = vec![
+        0x40, 0x40, 0x02, 0x01, 0x02, // versions
+        0x02, // 3 params
+        0x00, 0x01, 0x04, // role = invalid
+        0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
+    ];
+    parser.process_data(&mut &setup[..], false);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "Invalid ROLE parameter");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("invalid role: 4".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_ServerSetupRoleIsInvalid() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
@@ -914,7 +935,7 @@ fn test_ServerSetupRoleIsInvalid() -> Result<()> {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Invalid ROLE parameter");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -937,7 +958,7 @@ fn test_SetupRoleAppearsTwice() -> Result<()> {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "ROLE parameter appears twice in SETUP");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -959,7 +980,7 @@ fn test_ClientSetupRoleIsMissing() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "ROLE parameter missing from CLIENT_SETUP message");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -979,7 +1000,7 @@ fn test_ServerSetupRoleIsMissing() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "ROLE parameter missing from SERVER_SETUP message");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1004,7 +1025,7 @@ fn test_SetupRoleVarintLengthIsWrong() -> Result<()> {
   assert_eq!(*tester.visitor.parsing_error,
             "Parameter length does not match varint encoding");
 
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kParameterLengthMismatch);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ParameterLengthMismatch);
 
     Ok(())
 }
@@ -1026,7 +1047,7 @@ fn test_SetupPathFromServer() -> Result<()> {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "PATH parameter in SERVER_SETUP");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1050,7 +1071,7 @@ fn test_SetupPathAppearsTwice() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "PATH parameter appears twice in CLIENT_SETUP");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1073,7 +1094,7 @@ fn test_SetupPathOverWebtrans() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "WebTransport connection is using PATH parameter in SETUP");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1095,7 +1116,7 @@ fn test_SetupPathMissing() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "PATH SETUP parameter missing from Client message over QUIC");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1120,7 +1141,7 @@ fn test_SubscribeAuthorizationInfoTwice() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1144,7 +1165,7 @@ fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1167,7 +1188,7 @@ fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1186,7 +1207,7 @@ fn test_FinMidPayload() -> Result<()> {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Received FIN mid-payload");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1210,7 +1231,7 @@ fn test_PartialPayloadThenFin() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "End of stream before complete OBJECT PAYLOAD");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1229,7 +1250,7 @@ fn test_DataAfterFin() -> Result<()> {
     }
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Data after end of stream");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1250,7 +1271,7 @@ fn test_NonNormalObjectHasPayload() -> Result<()> {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "Object with non-normal status has payload");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1270,7 +1291,7 @@ fn test_InvalidObjectStatus() -> Result<()> {
     }
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Invalid object status");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
@@ -1296,7 +1317,7 @@ fn test_Setup2KB() -> Result<()> {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Cannot parse non-OBJECT messages > 2KB");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kInternalError);
+  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::InternalError);
 
     Ok(())
 }

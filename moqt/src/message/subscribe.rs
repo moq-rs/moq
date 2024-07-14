@@ -27,7 +27,8 @@ impl Deserializer for Subscribe {
         let (filter_type, ftl) = FilterType::deserialize(r)?;
 
         let (mut parameters, pl) = Parameters::deserialize(r)?;
-        let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
+        let authorization_info: Option<String> =
+            parameters.remove(ParameterKey::AuthorizationInfo)?;
 
         Ok((
             Self {

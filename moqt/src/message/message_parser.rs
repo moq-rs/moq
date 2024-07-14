@@ -212,7 +212,12 @@ impl MessageParser {
             let (control_message, message_len) = match ControlMessage::deserialize(&mut msg_reader)
             {
                 Ok((control_message, message_len)) => (control_message, message_len),
-                Err(_) => return 0,
+                Err(err) => {
+                    if let Error::ErrParseError(reason) = err {
+                        self.parse_error(ParserErrorCode::ProtocolViolation, reason);
+                    }
+                    return 0;
+                }
             };
             self.parser_events
                 .push_back(MessageParserEvent::ControlMessage(control_message));

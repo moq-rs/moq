@@ -24,8 +24,9 @@ impl Deserializer for ClientSetup {
         tl += pl;
         let role: Role = parameters
             .remove(ParameterKey::Role)
+            .map_err(|err| Error::ErrParseError(err.to_string()))?
             .ok_or(Error::ErrMissingParameter)?;
-        let path: Option<String> = parameters.remove(ParameterKey::Path);
+        let path: Option<String> = parameters.remove(ParameterKey::Path)?;
 
         Ok((
             Self {

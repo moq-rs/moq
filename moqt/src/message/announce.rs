@@ -13,7 +13,8 @@ impl Deserializer for Announce {
         let (track_namespace, tnsl) = String::deserialize(r)?;
 
         let (mut parameters, pl) = Parameters::deserialize(r)?;
-        let authorization_info: Option<String> = parameters.remove(ParameterKey::AuthorizationInfo);
+        let authorization_info: Option<String> =
+            parameters.remove(ParameterKey::AuthorizationInfo)?;
 
         Ok((
             Self {
