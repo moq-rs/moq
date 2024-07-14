@@ -26,6 +26,7 @@ impl TryFrom<u64> for ParameterKey {
     }
 }
 
+//TODO: REMOVE IT
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Parameters(pub HashMap<u64, Vec<u8>>);
 

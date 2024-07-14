@@ -53,13 +53,18 @@ impl Deserializer for ServerSetup {
                         "Invalid ROLE parameter".to_string(),
                     )
                 })?);
+            } else if key == ParameterKey::Path as u64 {
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    "PATH parameter in SERVER_SETUP".to_string(),
+                ));
             }
         }
 
         if role.is_none() {
             return Err(Error::ErrParseError(
                 ParserErrorCode::ProtocolViolation,
-                "ROLE parameter missing from SETUP message".to_string(),
+                "ROLE parameter missing from SERVER_SETUP message".to_string(),
             ));
         }
 

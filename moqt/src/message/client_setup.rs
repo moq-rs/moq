@@ -65,7 +65,7 @@ impl Deserializer for ClientSetup {
                 if path.is_some() {
                     return Err(Error::ErrParseError(
                         ParserErrorCode::ProtocolViolation,
-                        "PATH parameter appears twice in SETUP".to_string(),
+                        "PATH parameter appears twice in CLIENT_SETUP".to_string(),
                     ));
                 }
                 let mut buf = vec![0; size];
@@ -79,7 +79,7 @@ impl Deserializer for ClientSetup {
         if role.is_none() {
             return Err(Error::ErrParseError(
                 ParserErrorCode::ProtocolViolation,
-                "ROLE parameter missing from SETUP message".to_string(),
+                "ROLE parameter missing from CLIENT_SETUP message".to_string(),
             ));
         }
 
