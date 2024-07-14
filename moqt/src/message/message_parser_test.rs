@@ -1196,31 +1196,35 @@ fn test_subscribe_authorization_info_twice() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
+fn test_subscribe_update_authorization_info_twice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_WEB_TRANS);
-  char subscribe_update[] = {
-      0x02, 0x02, 0x03, 0x01, 0x05, 0x06,  // start and end sequences
-      0x02,                                // 2 parameters
-      0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
-      0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
-  };
-  parser.process_data(
-      absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_WEB_TRANS);
+    let subscribe_update = vec![
+        0x02, 0x02, 0x03, 0x01, 0x05, 0x06, // start and end sequences
+        0x02, // 2 parameters
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe_update[..], false);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
