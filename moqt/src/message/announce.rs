@@ -1,7 +1,7 @@
+use crate::message::message_parser::ParserErrorCode;
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Error, Parameters, Result, Serializer};
 use bytes::{Buf, BufMut};
-use crate::message::message_parser::ParserErrorCode;
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Announce {

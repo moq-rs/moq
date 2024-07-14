@@ -1254,20 +1254,27 @@ fn test_announce_authorization_info_twice() -> Result<()> {
 }
 
 #[test]
-fn test_FinMidPayload() -> Result<()> {
+fn test_fin_mid_payload() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
     let mut parser = MessageParser::new(K_RAW_QUIC);
     let message = TestStreamHeaderGroupMessage::new();
     parser.process_data(
-        message.packet_sample()(0, message.total_message_size() - 1),
-        true);
+        &mut &message.packet_sample()[..message.total_message_size() - 1],
+        true,
+    );
     while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
     assert_eq!(tester.visitor.messages_received, 0);
     assert!(tester.visitor.parsing_error.is_some());
-    assert_eq!(tester.visitor.parsing_error, Some("Received FIN mid-payload".to_string()));
-    assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Received FIN mid-payload".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
 
     Ok(())
 }
