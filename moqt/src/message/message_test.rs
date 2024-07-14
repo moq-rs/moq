@@ -64,7 +64,7 @@ impl TestMessage {
     }
 
     // The total actual size of the message.
-    fn total_message_size(&self) -> usize {
+    pub(crate) fn total_message_size(&self) -> usize {
         self.wire_image_size
     }
 
@@ -72,7 +72,7 @@ impl TestMessage {
         &self.wire_image[..self.wire_image_size]
     }
 
-    fn set_wire_image_size(&mut self, wire_image_size: usize) {
+    pub(crate) fn set_wire_image_size(&mut self, wire_image_size: usize) {
         self.wire_image_size = wire_image_size;
     }
 

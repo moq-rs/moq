@@ -701,111 +701,156 @@ fn test_object_stream_separate_fin() -> Result<()> {
     assert!(!tester.visitor.parsing_error.is_some());
     Ok(())
 }
-/*
+
 // Send the header + some payload, pure payload, then pure payload to end the
 // message.
-TEST_F(MoqtMessageSpecificTest, ThreePartObject) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
-  auto message = std::make_unique<ObjectStreamMessage>();
-  parser.ProcessData(message->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message.equal_field_values(*tester.visitor.last_message_));
-  assert!(!tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "foo");
+#[test]
+fn test_three_part_object() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let message = TestObjectStreamMessage::new();
+    parser.process_data(&mut message.packet_sample(), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(!tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"foo"))
+    );
 
-  // second part
-  parser.ProcessData("bar", false);
-  assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message.equal_field_values(*tester.visitor.last_message_));
-  assert!(!tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "bar");
+    // second part
+    parser.process_data(&mut Bytes::from_static(b"bar"), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 2);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(!tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"bar"))
+    );
 
-  // third part includes FIN
-  parser.ProcessData("deadbeef", true);
-  assert_eq!(tester.visitor.messages_received_, 3);
-  assert!(message.equal_field_values(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "deadbeef");
-  assert!(!tester.visitor.parsing_error_.has_value());
+    // third part includes FIN
+    parser.process_data(&mut Bytes::from_static(b"deadbeef"), true);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 3);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"deadbeef"))
+    );
+    assert!(!tester.visitor.parsing_error.is_some());
+
+    Ok(())
 }
 
 // Send the part of header, rest of header + payload, plus payload.
-TEST_F(MoqtMessageSpecificTest, ThreePartObjectFirstIncomplete) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
-  auto message = std::make_unique<ObjectStreamMessage>();
+#[test]
+fn test_three_part_object_first_incomplete() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let mut message = TestObjectStreamMessage::new();
 
-  // first part
-  parser.ProcessData(message->PacketSample().substr(0, 4), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
+    // first part
+    parser.process_data(&mut &message.packet_sample()[0..4], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
 
-  // second part. Add padding to it.
-  message->set_wire_image_size(100);
-  parser.ProcessData(
-      message->PacketSample().substr(4, message->total_message_size() - 4),
-      false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message.equal_field_values(*tester.visitor.last_message_));
-  assert!(!tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  // The value "93" is the overall wire image size of 100 minus the non-payload
-  // part of the message.
-  assert_eq!(tester.visitor.object_payload_->length(), 93);
+    // second part. Add padding to it.
+    message.set_wire_image_size(100);
+    parser.process_data(
+        &mut &message.packet_sample()[4..message.total_message_size()],
+        false,
+    );
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(!tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    // The value "93" is the overall wire image size of 100 minus the non-payload
+    // part of the message.
+    assert_eq!(tester.visitor.object_payload.as_ref().unwrap().len(), 93);
 
-  // third part includes FIN
-  parser.ProcessData("bar", true);
-  assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message.equal_field_values(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "bar");
-  assert!(!tester.visitor.parsing_error_.has_value());
+    // third part includes FIN
+    parser.process_data(&mut Bytes::from_static(b"bar"), true);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 2);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"bar"))
+    );
+    assert!(!tester.visitor.parsing_error.is_some());
+
+    Ok(())
 }
 
+/*
 TEST_F(MoqtMessageSpecificTest, StreamHeaderGroupFollowOn) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
   // first part
   auto message1 = std::make_unique<StreamHeaderGroupMessage>();
-  parser.ProcessData(message1->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message1.equal_field_values(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "foo");
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(message1->PacketSample(), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(message1.equal_field_values(*tester.visitor.last_message));
+  assert!(tester.visitor.end_of_message);
+  assert!(tester.visitor.object_payload.is_some());
+  assert_eq!(tester.visitor.object_payload, "foo");
+  assert!(!tester.visitor.parsing_error.is_some());
   // second part
   auto message2 = std::make_unique<StreamMiddlerGroupMessage>();
-  parser.ProcessData(message2->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message2.equal_field_values(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "bar");
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(message2->PacketSample(), false);
+  assert_eq!(tester.visitor.messages_received, 2);
+  assert!(message2.equal_field_values(*tester.visitor.last_message));
+  assert!(tester.visitor.end_of_message);
+  assert!(tester.visitor.object_payload.is_some());
+  assert_eq!(tester.visitor.object_payload, "bar");
+  assert!(!tester.visitor.parsing_error.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, StreamHeaderTrackFollowOn) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
   // first part
   auto message1 = std::make_unique<StreamHeaderTrackMessage>();
-  parser.ProcessData(message1->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message1.equal_field_values(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "foo");
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(message1->PacketSample(), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(message1.equal_field_values(*tester.visitor.last_message));
+  assert!(tester.visitor.end_of_message);
+  assert!(tester.visitor.object_payload.is_some());
+  assert_eq!(tester.visitor.object_payload, "foo");
+  assert!(!tester.visitor.parsing_error.is_some());
   // second part
   auto message2 = std::make_unique<StreamMiddlerTrackMessage>();
-  parser.ProcessData(message2->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message2.equal_field_values(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "bar");
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(message2->PacketSample(), false);
+  assert_eq!(tester.visitor.messages_received, 2);
+  assert!(message2.equal_field_values(*tester.visitor.last_message));
+  assert!(tester.visitor.end_of_message);
+  assert!(tester.visitor.object_payload.is_some());
+  assert_eq!(tester.visitor.object_payload, "bar");
+  assert!(!tester.visitor.parsing_error.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsInvalid) {
@@ -816,10 +861,10 @@ TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsInvalid) {
       0x00, 0x01, 0x04,              // role = invalid
       0x01, 0x03, 0x66, 0x6f, 0x6f   // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Invalid ROLE parameter");
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Invalid ROLE parameter");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
@@ -831,10 +876,10 @@ TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsInvalid) {
       0x00, 0x01, 0x04,             // role = invalid
       0x01, 0x03, 0x66, 0x6f, 0x6f  // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Invalid ROLE parameter");
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Invalid ROLE parameter");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
@@ -847,10 +892,10 @@ TEST_F(MoqtMessageSpecificTest, SetupRoleAppearsTwice) {
       0x00, 0x01, 0x03,              // role = PubSub
       0x01, 0x03, 0x66, 0x6f, 0x6f   // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "ROLE parameter appears twice in SETUP");
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "ROLE parameter appears twice in SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
@@ -861,10 +906,10 @@ TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsMissing) {
       0x01,                          // 1 param
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "ROLE parameter missing from CLIENT_SETUP message");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -874,10 +919,10 @@ TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsMissing) {
   char setup[] = {
       0x40, 0x41, 0x01, 0x00,  // 1 param
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "ROLE parameter missing from SERVER_SETUP message");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -891,10 +936,10 @@ TEST_F(MoqtMessageSpecificTest, SetupRoleVarintLengthIsWrong) {
       0x00, 0x02, 0x03,             // role = PubSub, but length is 2
       0x01, 0x03, 0x66, 0x6f, 0x6f  // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "Parameter length does not match varint encoding");
 
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kParameterLengthMismatch);
@@ -908,10 +953,10 @@ TEST_F(MoqtMessageSpecificTest, SetupPathFromServer) {
       0x01,                          // 1 param
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "PATH parameter in SERVER_SETUP");
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "PATH parameter in SERVER_SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
@@ -924,10 +969,10 @@ TEST_F(MoqtMessageSpecificTest, SetupPathAppearsTwice) {
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "PATH parameter appears twice in CLIENT_SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -940,10 +985,10 @@ TEST_F(MoqtMessageSpecificTest, SetupPathOverWebtrans) {
       0x00, 0x01, 0x03,              // role = PubSub
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "WebTransport connection is using PATH parameter in SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -955,10 +1000,10 @@ TEST_F(MoqtMessageSpecificTest, SetupPathMissing) {
       0x01,                          // 1 param
       0x00, 0x01, 0x03,              // role = PubSub
   };
-  parser.ProcessData(absl::string_view(setup, sizeof(setup)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "PATH SETUP parameter missing from Client message over QUIC");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -973,10 +1018,10 @@ TEST_F(MoqtMessageSpecificTest, SubscribeAuthorizationInfoTwice) {
       0x02, 0x03, 0x62, 0x61, 0x72,              // authorization_info = "bar"
       0x02, 0x03, 0x62, 0x61, 0x72,              // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -989,11 +1034,11 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateAuthorizationInfoTwice) {
       0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
       0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
   };
-  parser.ProcessData(
+  parser.process_data(
       absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -1006,10 +1051,10 @@ TEST_F(MoqtMessageSpecificTest, AnnounceAuthorizationInfoTwice) {
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(announce, sizeof(announce)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(announce, sizeof(announce)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -1017,35 +1062,35 @@ TEST_F(MoqtMessageSpecificTest, AnnounceAuthorizationInfoTwice) {
 TEST_F(MoqtMessageSpecificTest, FinMidPayload) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
   auto message = std::make_unique<StreamHeaderGroupMessage>();
-  parser.ProcessData(
-      message->PacketSample().substr(0, message->total_message_size() - 1),
+  parser.process_data(
+      message.packet_sample()(0, message->total_message_size() - 1),
       true);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Received FIN mid-payload");
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Received FIN mid-payload");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
 TEST_F(MoqtMessageSpecificTest, PartialPayloadThenFin) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
   auto message = std::make_unique<StreamHeaderTrackMessage>();
-  parser.ProcessData(
-      message->PacketSample().substr(0, message->total_message_size() - 1),
+  parser.process_data(
+      message.packet_sample()(0, message->total_message_size() - 1),
       false);
-  parser.ProcessData(absl::string_view(), true);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(absl::string_view(), true);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "End of stream before complete OBJECT PAYLOAD");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
 TEST_F(MoqtMessageSpecificTest, DataAfterFin) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
-  parser.ProcessData(absl::string_view(), true);  // Find FIN
-  parser.ProcessData("foo", false);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Data after end of stream");
+  parser.process_data(absl::string_view(), true);  // Find FIN
+  parser.process_data("foo", false);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Data after end of stream");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
@@ -1055,10 +1100,10 @@ TEST_F(MoqtMessageSpecificTest, NonNormalObjectHasPayload) {
       0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x02,  // varints
       0x66, 0x6f, 0x6f,                          // payload = "foo"
   };
-  parser.ProcessData(absl::string_view(object_stream, sizeof(object_stream)),
+  parser.process_data(absl::string_view(object_stream, sizeof(object_stream)),
                      false);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "Object with non-normal status has payload");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
@@ -1069,10 +1114,10 @@ TEST_F(MoqtMessageSpecificTest, InvalidObjectStatus) {
       0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x06,  // varints
       0x66, 0x6f, 0x6f,                          // payload = "foo"
   };
-  parser.ProcessData(absl::string_view(object_stream, sizeof(object_stream)),
+  parser.process_data(absl::string_view(object_stream, sizeof(object_stream)),
                      false);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Invalid object status");
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Invalid object status");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
 }
 
@@ -1087,11 +1132,11 @@ TEST_F(MoqtMessageSpecificTest, Setup2KB) {
   writer.WriteVarInt62(kMaxMessageHeaderSize);  // very long parameter
   writer.WriteRepeatedByte(0x04, kMaxMessageHeaderSize);
   // Send incomplete message
-  parser.ProcessData(absl::string_view(big_message, writer.length() - 1),
+  parser.process_data(absl::string_view(big_message, writer.length() - 1),
                      false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Cannot parse non-OBJECT messages > 2KB");
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Cannot parse non-OBJECT messages > 2KB");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kInternalError);
 }
 
@@ -1100,10 +1145,10 @@ TEST_F(MoqtMessageSpecificTest, UnknownMessageType) {
   char message[4];
   quic::QuicDataWriter writer(sizeof(message), message);
   writer.WriteVarInt62(0xbeef);  // unknown message type
-  parser.ProcessData(absl::string_view(message, writer.length()), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "Unknown message type");
+  parser.process_data(absl::string_view(message, writer.length()), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "Unknown message type");
 }
 
 TEST_F(MoqtMessageSpecificTest, LatestGroup) {
@@ -1116,15 +1161,15 @@ TEST_F(MoqtMessageSpecificTest, LatestGroup) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(tester.visitor.last_message_.has_value());
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(tester.visitor.last_message.is_some());
   MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message_.value());
-  assert!(!message.start_group.has_value());
+      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
+  assert!(!message.start_group.is_some());
   assert_eq!(message.start_object, 0);
-  assert!(!message.end_group.has_value());
-  assert!(!message.end_object.has_value());
+  assert!(!message.end_group.is_some());
+  assert!(!message.end_object.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, LatestObject) {
@@ -1137,15 +1182,15 @@ TEST_F(MoqtMessageSpecificTest, LatestObject) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(!tester.visitor.parsing_error.is_some());
   MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message_.value());
-  assert!(!message.start_group.has_value());
-  assert!(!message.start_object.has_value());
-  assert!(!message.end_group.has_value());
-  assert!(!message.end_object.has_value());
+      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
+  assert!(!message.start_group.is_some());
+  assert!(!message.start_object.is_some());
+  assert!(!message.end_group.is_some());
+  assert!(!message.end_object.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteStart) {
@@ -1160,15 +1205,15 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteStart) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(!tester.visitor.parsing_error.is_some());
   MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message_.value());
+      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
   assert_eq!(message.start_group.value(), 4);
   assert_eq!(message.start_object.value(), 1);
-  assert!(!message.end_group.has_value());
-  assert!(!message.end_object.has_value());
+  assert!(!message.end_group.is_some());
+  assert!(!message.end_object.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExplicitEndObject) {
@@ -1185,11 +1230,11 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExplicitEndObject) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(!tester.visitor.parsing_error.is_some());
   MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message_.value());
+      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
   assert_eq!(message.start_group.value(), 4);
   assert_eq!(message.start_object.value(), 1);
   assert_eq!(message.end_group.value(), 7);
@@ -1210,15 +1255,15 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeWholeEndGroup) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 1);
+  assert!(!tester.visitor.parsing_error.is_some());
   MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message_.value());
+      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
   assert_eq!(message.start_group.value(), 4);
   assert_eq!(message.start_object.value(), 1);
   assert_eq!(message.end_group.value(), 7);
-  assert!(!message.end_object.has_value());
+  assert!(!message.end_object.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndGroupTooLow) {
@@ -1235,10 +1280,10 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndGroupTooLow) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "End group is less than start group");
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "End group is less than start group");
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExactlyOneObject) {
@@ -1254,8 +1299,8 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExactlyOneObject) {
       0x02,                          // end object = 1
       0x00,                          // no parameters
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 1);
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateExactlyOneObject) {
@@ -1264,9 +1309,9 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateExactlyOneObject) {
       0x02, 0x02, 0x03, 0x01, 0x04, 0x07,  // start and end sequences
       0x00,                                // No parameters
   };
-  parser.ProcessData(
+  parser.process_data(
       absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
+  assert_eq!(tester.visitor.messages_received, 1);
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndGroupTooLow) {
@@ -1276,11 +1321,11 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndGroupTooLow) {
       0x01,                                // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
   };
-  parser.ProcessData(
+  parser.process_data(
       absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "End group is less than start group");
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "End group is less than start group");
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndObjectTooLow) {
@@ -1297,10 +1342,10 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndObjectTooLow) {
       0x01,                          // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
   };
-  parser.ProcessData(absl::string_view(subscribe, sizeof(subscribe)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "End object comes before start object");
+  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "End object comes before start object");
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndObjectTooLow) {
@@ -1310,11 +1355,11 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndObjectTooLow) {
       0x01,                                // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
   };
-  parser.ProcessData(
+  parser.process_data(
       absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "End object comes before start object");
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error, "End object comes before start object");
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateNoEndGroup) {
@@ -1324,11 +1369,11 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateNoEndGroup) {
       0x01,                                // 1 parameter
       0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
   };
-  parser.ProcessData(
+  parser.process_data(
       absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "SUBSCRIBE_UPDATE has end_object but no end_group");
 }
 
@@ -1350,11 +1395,11 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
     memcpy(buffer + write, message->PacketSample().data(),
            message->total_message_size());
     size_t new_read = write + message->total_message_size() / 2;
-    parser.ProcessData(absl::string_view(buffer + read, new_read - read),
+    parser.process_data(absl::string_view(buffer + read, new_read - read),
                        false);
-    assert_eq!(tester.visitor.messages_received_, fully_received);
+    assert_eq!(tester.visitor.messages_received, fully_received);
     if (prev_message != nullptr) {
-      assert!(prev_message.equal_field_values(*tester.visitor.last_message_));
+      assert!(prev_message.equal_field_values(*tester.visitor.last_message));
     }
     fully_received++;
     read = new_read;
@@ -1362,10 +1407,10 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
     prev_message = std::move(message);
   }
   // Deliver the rest
-  parser.ProcessData(absl::string_view(buffer + read, write - read), true);
-  assert_eq!(tester.visitor.messages_received_, fully_received);
-  assert!(prev_message.equal_field_values(*tester.visitor.last_message_));
-  assert!(!tester.visitor.parsing_error_.has_value());
+  parser.process_data(absl::string_view(buffer + read, write - read), true);
+  assert_eq!(tester.visitor.messages_received, fully_received);
+  assert!(prev_message.equal_field_values(*tester.visitor.last_message));
+  assert!(!tester.visitor.parsing_error.is_some());
 }
 
 TEST_F(MoqtMessageSpecificTest, DatagramSuccessful) {
@@ -1411,10 +1456,10 @@ TEST_F(MoqtMessageSpecificTest, SubscribeOkInvalidContentExists) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
   SubscribeOkMessage subscribe_ok;
   subscribe_ok.SetInvalidContentExists();
-  parser.ProcessData(subscribe_ok.PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(subscribe_ok.PacketSample(), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "SUBSCRIBE_OK ContentExists has invalid value");
 }
 
@@ -1422,10 +1467,10 @@ TEST_F(MoqtMessageSpecificTest, SubscribeDoneInvalidContentExists) {
   MoqtParser parser(K_RAW_QUIC, tester.visitor);
   SubscribeDoneMessage subscribe_done;
   subscribe_done.SetInvalidContentExists();
-  parser.ProcessData(subscribe_done.PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_,
+  parser.process_data(subscribe_done.PacketSample(), false);
+  assert_eq!(tester.visitor.messages_received, 0);
+  assert!(tester.visitor.parsing_error.is_some());
+  assert_eq!(*tester.visitor.parsing_error,
             "SUBSCRIBE_DONE ContentExists has invalid value");
 }
  */
