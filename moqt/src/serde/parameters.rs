@@ -1,3 +1,4 @@
+use crate::message::message_parser::ParserErrorCode;
 use crate::serde::{Deserializer, Serializer};
 use crate::{Error, Result};
 use bytes::{Buf, BufMut};
@@ -37,10 +38,10 @@ impl Deserializer for Parameters {
         for _ in 0..count {
             let (kind, kl) = u64::deserialize(r)?;
             if params.contains_key(&kind) {
-                return Err(Error::ErrProtocolViolation(format!(
-                    "parameter {} appears twice",
-                    kind
-                )));
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    format!("parameter {} appears twice", kind),
+                ));
             }
 
             let (size, sl) = usize::deserialize(r)?;

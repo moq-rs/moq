@@ -588,7 +588,7 @@ impl TestClientSetupMessage {
         let mut base = TestMessage::new(MessageType::ClientSetup);
         let mut client_setup = ClientSetup {
             supported_versions: vec![Version::Unsupported(0x01), Version::Unsupported(0x02)],
-            role: Role::PubSub,
+            role: Some(Role::PubSub),
             path: Some("foo".to_string()),
         };
         let mut raw_packet = vec![
@@ -684,7 +684,7 @@ impl TestServerSetupMessage {
         let mut base = TestMessage::new(MessageType::ServerSetup);
         let server_setup = ServerSetup {
             supported_version: Version::Unsupported(0x01),
-            role: Role::PubSub,
+            role: Some(Role::PubSub),
         };
         let raw_packet = vec![
             0x40, 0x41, // type

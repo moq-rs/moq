@@ -4,6 +4,7 @@ use crate::serde::Deserializer;
 use crate::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::collections::VecDeque;
+use std::fmt::{Display, Formatter};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ParserErrorCode {
@@ -15,6 +16,12 @@ pub enum ParserErrorCode {
     DuplicateTrackAlias = 0x4,
     ParameterLengthMismatch = 0x5,
     GoawayTimeout = 0x10,
+}
+
+impl Display for ParserErrorCode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", *self)
+    }
 }
 
 pub enum MessageParserEvent {
@@ -169,7 +176,10 @@ impl MessageParser {
     pub fn process_datagram<R: Buf>(r: &mut R) -> Result<(ObjectHeader, Bytes)> {
         let (object_header, _) = MessageParser::parse_object_header(r)?;
         if object_header.object_forwarding_preference != ObjectForwardingPreference::Datagram {
-            return Err(Error::ErrProtocolViolation("invalid datagram".to_string()));
+            return Err(Error::ErrParseError(
+                ParserErrorCode::ProtocolViolation,
+                "invalid datagram".to_string(),
+            ));
         }
         Ok((object_header, r.copy_to_bytes(r.remaining())))
     }
@@ -211,10 +221,29 @@ impl MessageParser {
             let mut msg_reader = self.buffered_message.as_ref();
             let (control_message, message_len) = match ControlMessage::deserialize(&mut msg_reader)
             {
-                Ok((control_message, message_len)) => (control_message, message_len),
+                Ok((control_message, message_len)) => {
+                    if let ControlMessage::ClientSetup(client_setup) = &control_message {
+                        if self.use_web_transport && client_setup.path.is_some() {
+                            self.parse_error(
+                                ParserErrorCode::ProtocolViolation,
+                                "WebTransport connection is using PATH parameter in SETUP"
+                                    .to_string(),
+                            );
+                            return 0;
+                        } else if !self.use_web_transport && client_setup.path.is_none() {
+                            self.parse_error(
+                                ParserErrorCode::ProtocolViolation,
+                                "PATH SETUP parameter missing from Client message over QUIC"
+                                    .to_string(),
+                            );
+                            return 0;
+                        }
+                    }
+                    (control_message, message_len)
+                }
                 Err(err) => {
-                    if let Error::ErrProtocolViolation(reason) = err {
-                        self.parse_error(ParserErrorCode::ProtocolViolation, reason);
+                    if let Error::ErrParseError(code, reason) = err {
+                        self.parse_error(code, reason);
                     }
                     return 0;
                 }
@@ -233,8 +262,8 @@ impl MessageParser {
             let (object_metadata, obl) = match MessageParser::parse_object_header(&mut oh_reader) {
                 Ok((object_metadata, obl)) => (object_metadata, obl),
                 Err(err) => {
-                    if let Error::ErrProtocolViolation(reason) = &err {
-                        self.parse_error(ParserErrorCode::ProtocolViolation, reason.to_string());
+                    if let Error::ErrParseError(code, reason) = err {
+                        self.parse_error(code, reason);
                     }
                     return 0;
                 }
@@ -256,8 +285,8 @@ impl MessageParser {
                 processed_data += prl;
             }
             Err(err) => {
-                if let Error::ErrProtocolViolation(reason) = &err {
-                    self.parse_error(ParserErrorCode::ProtocolViolation, reason.to_string());
+                if let Error::ErrParseError(code, reason) = err {
+                    self.parse_error(code, reason);
                 }
             }
         };
@@ -352,7 +381,8 @@ impl MessageParser {
 
         if let Some(object_metadata) = object_header.as_ref() {
             if object_metadata.object_status == ObjectStatus::Invalid {
-                return Err(Error::ErrProtocolViolation(
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
                     "Invalid object status".to_string(),
                 ));
             }
@@ -363,7 +393,8 @@ impl MessageParser {
                     && r.has_remaining()
                 {
                     // There is additional data in the stream/datagram, which is an error.
-                    return Err(Error::ErrProtocolViolation(
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
                         "Object with non-normal status has payload".to_string(),
                     ));
                 }
@@ -385,7 +416,8 @@ impl MessageParser {
             };
             let mut payload_to_draw = r.remaining();
             if fin && has_length && payload_length > r.remaining() {
-                return Err(Error::ErrProtocolViolation(
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
                     "Received FIN mid-payload".to_string(),
                 ));
             }

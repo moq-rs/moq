@@ -1,3 +1,4 @@
+use crate::message::message_parser::ParserErrorCode;
 use crate::message::{Role, Version};
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Error, Parameters, Result, Serializer};
@@ -6,7 +7,7 @@ use bytes::{Buf, BufMut};
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct ClientSetup {
     pub supported_versions: Vec<Version>,
-    pub role: Role,
+    pub role: Option<Role>,
     pub path: Option<String>,
 }
 
@@ -20,15 +21,67 @@ impl Deserializer for ClientSetup {
             tl += vl;
         }
 
-        let (mut parameters, pl) = Parameters::deserialize(r)?;
-        tl += pl;
-        let role: Role = parameters
-            .remove(ParameterKey::Role)
-            .map_err(|err| Error::ErrProtocolViolation(err.to_string()))?
-            .ok_or(Error::ErrProtocolViolation(
-                "ROLE parameter missing".to_string(),
-            ))?;
-        let path: Option<String> = parameters.remove(ParameterKey::Path)?;
+        let (num_params, npl) = u64::deserialize(r)?;
+        tl += npl;
+
+        let mut role: Option<Role> = None;
+        let mut path: Option<String> = None;
+
+        // Parse parameters
+        for _ in 0..num_params {
+            let (key, kl) = u64::deserialize(r)?;
+            tl += kl;
+            let (size, sl) = usize::deserialize(r)?;
+            tl += sl;
+
+            if r.remaining() < size {
+                return Err(Error::ErrBufferTooShort);
+            }
+
+            if key == ParameterKey::Role as u64 {
+                if role.is_some() {
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "ROLE parameter appears twice in SETUP".to_string(),
+                    ));
+                }
+                let (r, rl) = u64::deserialize(r)?;
+                tl += rl;
+
+                if rl != size {
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ParameterLengthMismatch,
+                        "Parameter length does not match varint encoding".to_string(),
+                    ));
+                }
+
+                role = Some(r.try_into().map_err(|_| {
+                    Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "Invalid ROLE parameter".to_string(),
+                    )
+                })?);
+            } else if key == ParameterKey::Path as u64 {
+                if path.is_some() {
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "PATH parameter appears twice in SETUP".to_string(),
+                    ));
+                }
+                let mut buf = vec![0; size];
+                r.copy_to_slice(&mut buf);
+                tl += size;
+
+                path = Some(String::from_utf8(buf)?);
+            }
+        }
+
+        if role.is_none() {
+            return Err(Error::ErrParseError(
+                ParserErrorCode::ProtocolViolation,
+                "ROLE parameter missing from SETUP message".to_string(),
+            ));
+        }
 
         Ok((
             Self {
@@ -49,7 +102,9 @@ impl Serializer for ClientSetup {
         }
 
         let mut parameters = Parameters::new();
-        parameters.insert(ParameterKey::Role, self.role)?;
+        if let Some(role) = self.role.as_ref() {
+            parameters.insert(ParameterKey::Role, *role)?;
+        }
         if let Some(path) = self.path.as_ref() {
             parameters.insert(ParameterKey::Path, path.to_string())?;
         }
@@ -80,7 +135,7 @@ mod test {
                 ],
                 ControlMessage::ClientSetup(ClientSetup {
                     supported_versions: vec![Version::Draft01, Version::Draft02],
-                    role: Role::PubSub,
+                    role: Some(Role::PubSub),
                     path: Some("foo".to_string()),
                 }),
             ),
@@ -93,7 +148,7 @@ mod test {
                 ],
                 ControlMessage::ClientSetup(ClientSetup {
                     supported_versions: vec![Version::Draft00],
-                    role: Role::PubSub,
+                    role: Some(Role::PubSub),
                     path: Some("e".to_string()),
                 }),
             ),

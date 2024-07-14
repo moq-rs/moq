@@ -1,3 +1,4 @@
+use crate::message::message_parser::ParserErrorCode;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
@@ -34,8 +35,8 @@ pub enum Error {
     ErrTrackGroupForwardPreferenceRequiresLength,
     #[error("object status must be kNormal if payload is non-empty")]
     ErrNonEmptyPayloadMustBeWithNormalObjectStatus,
-    #[error("protocol violation: {0}")]
-    ErrProtocolViolation(String),
+    #[error("parse error with code: {0} and reason: {1}")]
+    ErrParseError(ParserErrorCode, String),
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),

@@ -908,7 +908,7 @@ fn test_client_setup_role_is_invalid() -> Result<()> {
     assert!(tester.visitor.parsing_error.is_some());
     assert_eq!(
         tester.visitor.parsing_error,
-        Some("invalid role: 4".to_string())
+        Some("Invalid ROLE parameter".to_string())
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
@@ -935,7 +935,7 @@ fn test_server_setup_role_is_invalid() -> Result<()> {
     assert!(tester.visitor.parsing_error.is_some());
     assert_eq!(
         tester.visitor.parsing_error,
-        Some("invalid role: 4".to_string())
+        Some("Invalid ROLE parameter".to_string())
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
@@ -964,7 +964,7 @@ fn test_setup_role_appears_twice() -> Result<()> {
     assert!(tester.visitor.parsing_error.is_some());
     assert_eq!(
         tester.visitor.parsing_error,
-        Some("parameter 0 appears twice".to_string())
+        Some("ROLE parameter appears twice in SETUP".to_string())
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
@@ -991,7 +991,7 @@ fn test_client_setup_role_is_missing() -> Result<()> {
     assert!(tester.visitor.parsing_error.is_some());
     assert_eq!(
         tester.visitor.parsing_error,
-        Some("ROLE parameter missing".to_string())
+        Some("ROLE parameter missing from SETUP message".to_string())
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
@@ -1016,7 +1016,7 @@ fn test_server_setup_role_is_missing() -> Result<()> {
     assert!(tester.visitor.parsing_error.is_some());
     assert_eq!(
         tester.visitor.parsing_error,
-        Some("ROLE parameter missing".to_string())
+        Some("ROLE parameter missing from SETUP message".to_string())
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
@@ -1026,17 +1026,16 @@ fn test_server_setup_role_is_missing() -> Result<()> {
     Ok(())
 }
 
-/*FIXME:
 #[test]
 fn test_setup_role_varint_length_is_wrong() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
     let mut parser = MessageParser::new(K_RAW_QUIC);
     let setup = vec![
-        0x40, 0x40,                   // type
-        0x02, 0x01, 0x02,             // versions
-        0x02,                         // 2 parameters
-        0x00, 0x02, 0x03,             // role = PubSub, but length is 2
-        0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
+        0x40, 0x40, // type
+        0x02, 0x01, 0x02, // versions
+        0x02, // 2 parameters
+        0x00, 0x02, 0x03, // role = PubSub, but length is 2
+        0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
     ];
     parser.process_data(&mut &setup[..], false);
     while let Some(event) = parser.poll_event() {
@@ -1044,13 +1043,18 @@ fn test_setup_role_varint_length_is_wrong() -> Result<()> {
     }
     assert_eq!(tester.visitor.messages_received, 0);
     assert!(tester.visitor.parsing_error.is_some());
-    assert_eq!(tester.visitor.parsing_error,
-               Some("Parameter length does not match varint encoding".to_string()));
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Parameter length does not match varint encoding".to_string())
+    );
 
-    assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ParameterLengthMismatch);
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ParameterLengthMismatch
+    );
 
     Ok(())
-}*/
+}
 /*
 #[test]
 fn test_SetupPathFromServer() -> Result<()> {

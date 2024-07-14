@@ -1,3 +1,4 @@
+use crate::message::message_parser::ParserErrorCode;
 use crate::message::{Role, Version};
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Error, Parameters, Result, Serializer};
@@ -6,27 +7,68 @@ use bytes::{Buf, BufMut};
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct ServerSetup {
     pub supported_version: Version,
-    pub role: Role,
+    pub role: Option<Role>,
 }
 
 impl Deserializer for ServerSetup {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
-        let (supported_version, svl) = Version::deserialize(r)?;
+        let (supported_version, mut tl) = Version::deserialize(r)?;
 
-        let (mut parameters, pl) = Parameters::deserialize(r)?;
-        let role: Role = parameters
-            .remove(ParameterKey::Role)
-            .map_err(|err| Error::ErrProtocolViolation(err.to_string()))?
-            .ok_or(Error::ErrProtocolViolation(
-                "ROLE parameter missing".to_string(),
-            ))?;
+        let (num_params, npl) = u64::deserialize(r)?;
+        tl += npl;
+
+        let mut role: Option<Role> = None;
+
+        // Parse parameters
+        for _ in 0..num_params {
+            let (key, kl) = u64::deserialize(r)?;
+            tl += kl;
+            let (size, sl) = usize::deserialize(r)?;
+            tl += sl;
+
+            if r.remaining() < size {
+                return Err(Error::ErrBufferTooShort);
+            }
+
+            if key == ParameterKey::Role as u64 {
+                if role.is_some() {
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "ROLE parameter appears twice in SETUP".to_string(),
+                    ));
+                }
+                let (r, rl) = u64::deserialize(r)?;
+                tl += rl;
+
+                if rl != size {
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "Parameter length does not match varint encoding".to_string(),
+                    ));
+                }
+
+                role = Some(r.try_into().map_err(|_| {
+                    Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "Invalid ROLE parameter".to_string(),
+                    )
+                })?);
+            }
+        }
+
+        if role.is_none() {
+            return Err(Error::ErrParseError(
+                ParserErrorCode::ProtocolViolation,
+                "ROLE parameter missing from SETUP message".to_string(),
+            ));
+        }
 
         Ok((
             Self {
                 supported_version,
                 role,
             },
-            svl + pl,
+            tl,
         ))
     }
 }
@@ -36,7 +78,9 @@ impl Serializer for ServerSetup {
         let mut l = self.supported_version.serialize(w)?;
 
         let mut parameters = Parameters::new();
-        parameters.insert(ParameterKey::Role, self.role)?;
+        if let Some(role) = self.role.as_ref() {
+            parameters.insert(ParameterKey::Role, *role)?;
+        }
         l += parameters.serialize(w)?;
         Ok(l)
     }
@@ -59,7 +103,7 @@ mod test {
 
         let expected_message = ControlMessage::ServerSetup(ServerSetup {
             supported_version: Version::Draft01,
-            role: Role::PubSub,
+            role: Some(Role::PubSub),
         });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
