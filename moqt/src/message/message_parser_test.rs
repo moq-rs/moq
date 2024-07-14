@@ -1224,26 +1224,31 @@ fn test_subscribe_update_authorization_info_twice() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
+fn test_announce_authorization_info_twice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_WEB_TRANS);
-  char announce[] = {
-      0x06, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
-      0x02,                          // 2 params
-      0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
-      0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
-  };
-  parser.process_data(absl::string_view(announce, sizeof(announce)), false);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_WEB_TRANS);
+    let announce = vec![
+        0x06, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        0x02, // 2 params
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &announce[..], false);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("AUTHORIZATION_INFO parameter appears twice in ANNOUNCE".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
 
     Ok(())
 }
@@ -1251,22 +1256,23 @@ fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
 #[test]
 fn test_FinMidPayload() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  auto message = std::make_unique<StreamHeaderGroupMessage>();
-  parser.process_data(
-      message.packet_sample()(0, message->total_message_size() - 1),
-      true);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let message = TestStreamHeaderGroupMessage::new();
+    parser.process_data(
+        message.packet_sample()(0, message.total_message_size() - 1),
+        true);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "Received FIN mid-payload");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(tester.visitor.parsing_error, Some("Received FIN mid-payload".to_string()));
+    assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
 }
 
+/*
 #[test]
 fn test_PartialPayloadThenFin() -> Result<()> {
     let mut tester = TestMessageSpecific::new();

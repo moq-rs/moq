@@ -1,6 +1,7 @@
 use crate::serde::parameters::ParameterKey;
-use crate::{Deserializer, Parameters, Result, Serializer};
+use crate::{Deserializer, Error, Parameters, Result, Serializer};
 use bytes::{Buf, BufMut};
+use crate::message::message_parser::ParserErrorCode;
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Announce {
@@ -12,9 +13,33 @@ impl Deserializer for Announce {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let (track_namespace, tnsl) = String::deserialize(r)?;
 
-        let (mut parameters, pl) = Parameters::deserialize(r)?;
-        let authorization_info: Option<String> =
-            parameters.remove(ParameterKey::AuthorizationInfo)?;
+        let mut authorization_info: Option<String> = None;
+        let (num_params, mut pl) = u64::deserialize(r)?;
+        // Parse parameters
+        for _ in 0..num_params {
+            let (key, kl) = u64::deserialize(r)?;
+            pl += kl;
+            let (size, sl) = usize::deserialize(r)?;
+            pl += sl;
+
+            if r.remaining() < size {
+                return Err(Error::ErrBufferTooShort);
+            }
+
+            if key == ParameterKey::AuthorizationInfo as u64 {
+                if authorization_info.is_some() {
+                    return Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE".to_string(),
+                    ));
+                }
+                let mut buf = vec![0; size];
+                r.copy_to_slice(&mut buf);
+                pl += size;
+
+                authorization_info = Some(String::from_utf8(buf)?);
+            }
+        }
 
         Ok((
             Self {
