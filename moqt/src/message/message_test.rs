@@ -124,9 +124,9 @@ impl TestMessage {
         while reader.has_remaining() {
             if i >= varints.len()
                 || varints[{
-                    i += 1;
-                    i - 1
-                }] == b'-'
+                i += 1;
+                i - 1
+            }] == b'-'
             {
                 writer.put_u8(reader.get_u8());
                 continue;
@@ -473,13 +473,13 @@ impl TestMessageBase for TestStreamMiddlerTrackMessage {
     }
 }
 
-struct TestStreamHeaderGroupMessage {
+pub(crate) struct TestStreamHeaderGroupMessage {
     base: TestObjectMessage,
     raw_packet: Vec<u8>,
 }
 
 impl TestStreamHeaderGroupMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestObjectMessage::new(MessageType::StreamHeaderGroup);
         let raw_packet = vec![
             0x40, 0x51, // two-byte type field
@@ -525,13 +525,13 @@ impl TestMessageBase for TestStreamHeaderGroupMessage {
     }
 }
 
-struct TestStreamMiddlerGroupMessage {
+pub(crate) struct TestStreamMiddlerGroupMessage {
     base: TestObjectMessage,
     raw_packet: Vec<u8>,
 }
 
 impl TestStreamMiddlerGroupMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestObjectMessage::new(MessageType::StreamHeaderGroup);
         let raw_packet = vec![
             0x09, 0x03, 0x62, 0x61, 0x72, // object middler; payload = "bar"
@@ -576,14 +576,14 @@ impl TestMessageBase for TestStreamMiddlerGroupMessage {
     }
 }
 
-struct TestClientSetupMessage {
+pub(crate) struct TestClientSetupMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     client_setup: ClientSetup,
 }
 
 impl TestClientSetupMessage {
-    fn new(webtrans: bool) -> Self {
+    pub(crate) fn new(webtrans: bool) -> Self {
         let mut base = TestMessage::new(MessageType::ClientSetup);
         let mut client_setup = ClientSetup {
             supported_versions: vec![Version::Unsupported(0x01), Version::Unsupported(0x02)],
@@ -672,14 +672,14 @@ impl TestMessageBase for TestClientSetupMessage {
     }
 }
 
-struct TestServerSetupMessage {
+pub(crate) struct TestServerSetupMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     server_setup: ServerSetup,
 }
 
 impl TestServerSetupMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::ServerSetup);
         let server_setup = ServerSetup {
             supported_version: Version::Unsupported(0x01),
@@ -744,14 +744,14 @@ impl TestMessageBase for TestServerSetupMessage {
     }
 }
 
-struct TestSubscribeMessage {
+pub(crate) struct TestSubscribeMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     subscribe: Subscribe,
 }
 
 impl TestSubscribeMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::Subscribe);
         let subscribe = Subscribe {
             subscribe_id: 1,
@@ -840,14 +840,14 @@ impl TestMessageBase for TestSubscribeMessage {
     }
 }
 
-struct TestSubscribeOkMessage {
+pub(crate) struct TestSubscribeOkMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     subscribe_ok: SubscribeOk,
 }
 
 impl TestSubscribeOkMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::SubscribeOk);
         let subscribe_ok = SubscribeOk {
             subscribe_id: 1,
@@ -918,14 +918,14 @@ impl TestMessageBase for TestSubscribeOkMessage {
     }
 }
 
-struct TestSubscribeErrorMessage {
+pub(crate) struct TestSubscribeErrorMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     subscribe_error: SubscribeError,
 }
 
 impl TestSubscribeErrorMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::SubscribeError);
         let subscribe_error = SubscribeError {
             subscribe_id: 2,
@@ -999,14 +999,14 @@ impl TestMessageBase for TestSubscribeErrorMessage {
     }
 }
 
-struct TestUnSubscribeMessage {
+pub(crate) struct TestUnSubscribeMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     un_subscribe: UnSubscribe,
 }
 
 impl TestUnSubscribeMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::UnSubscribe);
         let un_subscribe = UnSubscribe { subscribe_id: 3 };
         let raw_packet = vec![
@@ -1063,14 +1063,14 @@ impl TestMessageBase for TestUnSubscribeMessage {
     }
 }
 
-struct TestSubscribeDoneMessage {
+pub(crate) struct TestSubscribeDoneMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     subscribe_done: SubscribeDone,
 }
 
 impl TestSubscribeDoneMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::SubscribeDone);
         let subscribe_done = SubscribeDone {
             subscribe_id: 2,
@@ -1146,14 +1146,14 @@ impl TestMessageBase for TestSubscribeDoneMessage {
     }
 }
 
-struct TestSubscribeUpdateMessage {
+pub(crate) struct TestSubscribeUpdateMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     subscribe_update: SubscribeUpdate,
 }
 
 impl TestSubscribeUpdateMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::SubscribeUpdate);
         let subscribe_update = SubscribeUpdate {
             subscribe_id: 2,
@@ -1234,14 +1234,14 @@ impl TestMessageBase for TestSubscribeUpdateMessage {
     }
 }
 
-struct TestAnnounceMessage {
+pub(crate) struct TestAnnounceMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     announce: Announce,
 }
 
 impl TestAnnounceMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::Announce);
         let announce = Announce {
             track_namespace: "foo".to_string(),
@@ -1305,14 +1305,14 @@ impl TestMessageBase for TestAnnounceMessage {
     }
 }
 
-struct TestAnnounceOkMessage {
+pub(crate) struct TestAnnounceOkMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     announce_ok: AnnounceOk,
 }
 
 impl TestAnnounceOkMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::AnnounceOk);
         let announce_ok = AnnounceOk {
             track_namespace: "foo".to_string(),
@@ -1371,14 +1371,14 @@ impl TestMessageBase for TestAnnounceOkMessage {
     }
 }
 
-struct TestAnnounceErrorMessage {
+pub(crate) struct TestAnnounceErrorMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     announce_error: AnnounceError,
 }
 
 impl TestAnnounceErrorMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::AnnounceError);
         let announce_error = AnnounceError {
             track_namespace: "foo".to_string(),
@@ -1447,14 +1447,14 @@ impl TestMessageBase for TestAnnounceErrorMessage {
     }
 }
 
-struct TestAnnounceCancelMessage {
+pub(crate) struct TestAnnounceCancelMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     announce_cancel: AnnounceCancel,
 }
 
 impl TestAnnounceCancelMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::AnnounceCancel);
         let announce_cancel = AnnounceCancel {
             track_namespace: "foo".to_string(),
@@ -1513,14 +1513,14 @@ impl TestMessageBase for TestAnnounceCancelMessage {
     }
 }
 
-struct TestUnAnnounceMessage {
+pub(crate) struct TestUnAnnounceMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     un_announce: UnAnnounce,
 }
 
 impl TestUnAnnounceMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::UnAnnounce);
         let un_announce = UnAnnounce {
             track_namespace: "foo".to_string(),
@@ -1579,14 +1579,14 @@ impl TestMessageBase for TestUnAnnounceMessage {
     }
 }
 
-struct TestTrackStatusRequestMessage {
+pub(crate) struct TestTrackStatusRequestMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     track_status_request: TrackStatusRequest,
 }
 
 impl TestTrackStatusRequestMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::TrackStatusRequest);
         let track_status_request = TrackStatusRequest {
             track_namespace: "foo".to_string(),
@@ -1653,14 +1653,14 @@ impl TestMessageBase for TestTrackStatusRequestMessage {
     }
 }
 
-struct TestTrackStatusMessage {
+pub(crate) struct TestTrackStatusMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     track_status: TrackStatus,
 }
 
 impl TestTrackStatusMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::TrackStatus);
         let track_status = TrackStatus {
             track_namespace: "foo".to_string(),
@@ -1736,14 +1736,14 @@ impl TestMessageBase for TestTrackStatusMessage {
     }
 }
 
-struct TestGoAwayMessage {
+pub(crate) struct TestGoAwayMessage {
     base: TestMessage,
     raw_packet: Vec<u8>,
     go_away: GoAway,
 }
 
 impl TestGoAwayMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestMessage::new(MessageType::GoAway);
         let go_away = GoAway {
             new_session_uri: "foo".to_string(),

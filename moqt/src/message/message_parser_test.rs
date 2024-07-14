@@ -1,7 +1,5 @@
 use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
-use crate::message::message_test::{
-    create_test_message, MessageStructuredData, TestMessageBase, TestObjectStreamMessage,
-};
+use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase, TestObjectStreamMessage, TestStreamHeaderGroupMessage, TestStreamMiddlerGroupMessage};
 use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, MessageType};
 use crate::Result;
@@ -808,34 +806,48 @@ fn test_three_part_object_first_incomplete() -> Result<()> {
     Ok(())
 }
 
-/*
-TEST_F(MoqtMessageSpecificTest, StreamHeaderGroupFollowOn) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
-  // first part
-  auto message1 = std::make_unique<StreamHeaderGroupMessage>();
-  parser.process_data(message1->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received, 1);
-  assert!(message1.equal_field_values(*tester.visitor.last_message));
-  assert!(tester.visitor.end_of_message);
-  assert!(tester.visitor.object_payload.is_some());
-  assert_eq!(tester.visitor.object_payload, "foo");
-  assert!(!tester.visitor.parsing_error.is_some());
-  // second part
-  auto message2 = std::make_unique<StreamMiddlerGroupMessage>();
-  parser.process_data(message2->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received, 2);
-  assert!(message2.equal_field_values(*tester.visitor.last_message));
-  assert!(tester.visitor.end_of_message);
-  assert!(tester.visitor.object_payload.is_some());
-  assert_eq!(tester.visitor.object_payload, "bar");
-  assert!(!tester.visitor.parsing_error.is_some());
+#[test]
+fn test_stream_header_group_follow_on() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    // first part
+    let message1 = TestStreamHeaderGroupMessage::new();
+    parser.process_data(&mut message1.packet_sample(), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message1.equal_field_values(last_message));
+    assert!(tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"foo")));
+    assert!(!tester.visitor.parsing_error.is_some());
+    // second part
+    let message2 = TestStreamMiddlerGroupMessage::new();
+    parser.process_data(&mut message2.packet_sample(), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 2);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message2.equal_field_values(last_message));
+    assert!(tester.visitor.end_of_message);
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"bar")));
+    assert!(!tester.visitor.parsing_error.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, StreamHeaderTrackFollowOn) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+/*
+#[test]
+fn test_StreamHeaderTrackFollowOn() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   // first part
   auto message1 = std::make_unique<StreamHeaderTrackMessage>();
-  parser.process_data(message1->PacketSample(), false);
+  parser.process_data(message1.packet_sample(), false);
   assert_eq!(tester.visitor.messages_received, 1);
   assert!(message1.equal_field_values(*tester.visitor.last_message));
   assert!(tester.visitor.end_of_message);
@@ -844,17 +856,21 @@ TEST_F(MoqtMessageSpecificTest, StreamHeaderTrackFollowOn) {
   assert!(!tester.visitor.parsing_error.is_some());
   // second part
   auto message2 = std::make_unique<StreamMiddlerTrackMessage>();
-  parser.process_data(message2->PacketSample(), false);
+  parser.process_data(message2.packet_sample(), false);
   assert_eq!(tester.visitor.messages_received, 2);
   assert!(message2.equal_field_values(*tester.visitor.last_message));
   assert!(tester.visitor.end_of_message);
   assert!(tester.visitor.object_payload.is_some());
   assert_eq!(tester.visitor.object_payload, "bar");
   assert!(!tester.visitor.parsing_error.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsInvalid) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_ClientSetupRoleIsInvalid() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions
       0x03,                          // 3 params
@@ -866,10 +882,14 @@ TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsInvalid) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Invalid ROLE parameter");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsInvalid) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_ServerSetupRoleIsInvalid() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x41, 0x01,
       0x01,                         // 1 param
@@ -881,10 +901,14 @@ TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsInvalid) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Invalid ROLE parameter");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SetupRoleAppearsTwice) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SetupRoleAppearsTwice() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions
       0x03,                          // 3 params
@@ -897,10 +921,14 @@ TEST_F(MoqtMessageSpecificTest, SetupRoleAppearsTwice) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "ROLE parameter appears twice in SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsMissing) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_ClientSetupRoleIsMissing() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x01,                          // 1 param
@@ -912,10 +940,14 @@ TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsMissing) {
   assert_eq!(*tester.visitor.parsing_error,
             "ROLE parameter missing from CLIENT_SETUP message");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsMissing) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_ServerSetupRoleIsMissing() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x41, 0x01, 0x00,  // 1 param
   };
@@ -925,10 +957,14 @@ TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsMissing) {
   assert_eq!(*tester.visitor.parsing_error,
             "ROLE parameter missing from SERVER_SETUP message");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SetupRoleVarintLengthIsWrong) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SetupRoleVarintLengthIsWrong() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x40,                   // type
       0x02, 0x01, 0x02,             // versions
@@ -943,10 +979,14 @@ TEST_F(MoqtMessageSpecificTest, SetupRoleVarintLengthIsWrong) {
             "Parameter length does not match varint encoding");
 
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kParameterLengthMismatch);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SetupPathFromServer) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SetupPathFromServer() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x41,
       0x01,                          // version = 1
@@ -958,10 +998,14 @@ TEST_F(MoqtMessageSpecificTest, SetupPathFromServer) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "PATH parameter in SERVER_SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SetupPathAppearsTwice) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SetupPathAppearsTwice() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x03,                          // 3 params
@@ -975,9 +1019,13 @@ TEST_F(MoqtMessageSpecificTest, SetupPathAppearsTwice) {
   assert_eq!(*tester.visitor.parsing_error,
             "PATH parameter appears twice in CLIENT_SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SetupPathOverWebtrans) {
+#[test]
+fn test_SetupPathOverWebtrans() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
   MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
@@ -991,10 +1039,14 @@ TEST_F(MoqtMessageSpecificTest, SetupPathOverWebtrans) {
   assert_eq!(*tester.visitor.parsing_error,
             "WebTransport connection is using PATH parameter in SETUP");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SetupPathMissing) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SetupPathMissing() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x01,                          // 1 param
@@ -1006,9 +1058,13 @@ TEST_F(MoqtMessageSpecificTest, SetupPathMissing) {
   assert_eq!(*tester.visitor.parsing_error,
             "PATH SETUP parameter missing from Client message over QUIC");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeAuthorizationInfoTwice) {
+#[test]
+fn test_SubscribeAuthorizationInfoTwice() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
   MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
@@ -1024,9 +1080,13 @@ TEST_F(MoqtMessageSpecificTest, SubscribeAuthorizationInfoTwice) {
   assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeUpdateAuthorizationInfoTwice) {
+#[test]
+fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
   MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x05, 0x06,  // start and end sequences
@@ -1041,9 +1101,13 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateAuthorizationInfoTwice) {
   assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AnnounceAuthorizationInfoTwice) {
+#[test]
+fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
   MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char announce[] = {
       0x06, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
@@ -1057,10 +1121,14 @@ TEST_F(MoqtMessageSpecificTest, AnnounceAuthorizationInfoTwice) {
   assert_eq!(*tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, FinMidPayload) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_FinMidPayload() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   auto message = std::make_unique<StreamHeaderGroupMessage>();
   parser.process_data(
       message.packet_sample()(0, message->total_message_size() - 1),
@@ -1069,10 +1137,14 @@ TEST_F(MoqtMessageSpecificTest, FinMidPayload) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Received FIN mid-payload");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, PartialPayloadThenFin) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_PartialPayloadThenFin() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   auto message = std::make_unique<StreamHeaderTrackMessage>();
   parser.process_data(
       message.packet_sample()(0, message->total_message_size() - 1),
@@ -1083,19 +1155,27 @@ TEST_F(MoqtMessageSpecificTest, PartialPayloadThenFin) {
   assert_eq!(*tester.visitor.parsing_error,
             "End of stream before complete OBJECT PAYLOAD");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, DataAfterFin) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_DataAfterFin() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   parser.process_data(absl::string_view(), true);  // Find FIN
   parser.process_data("foo", false);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Data after end of stream");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, NonNormalObjectHasPayload) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_NonNormalObjectHasPayload() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char object_stream[] = {
       0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x02,  // varints
       0x66, 0x6f, 0x6f,                          // payload = "foo"
@@ -1106,10 +1186,14 @@ TEST_F(MoqtMessageSpecificTest, NonNormalObjectHasPayload) {
   assert_eq!(*tester.visitor.parsing_error,
             "Object with non-normal status has payload");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, InvalidObjectStatus) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_InvalidObjectStatus() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char object_stream[] = {
       0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x06,  // varints
       0x66, 0x6f, 0x6f,                          // payload = "foo"
@@ -1119,10 +1203,14 @@ TEST_F(MoqtMessageSpecificTest, InvalidObjectStatus) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Invalid object status");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, Setup2KB) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_Setup2KB() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char big_message[2 * kMaxMessageHeaderSize];
   quic::QuicDataWriter writer(sizeof(big_message), big_message);
   writer.WriteVarInt62(static_cast<uint64_t>(MoqtMessageType::kServerSetup));
@@ -1138,10 +1226,14 @@ TEST_F(MoqtMessageSpecificTest, Setup2KB) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Cannot parse non-OBJECT messages > 2KB");
   assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kInternalError);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, UnknownMessageType) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_UnknownMessageType() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char message[4];
   quic::QuicDataWriter writer(sizeof(message), message);
   writer.WriteVarInt62(0xbeef);  // unknown message type
@@ -1149,10 +1241,14 @@ TEST_F(MoqtMessageSpecificTest, UnknownMessageType) {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "Unknown message type");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, LatestGroup) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_LatestGroup() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1170,10 +1266,14 @@ TEST_F(MoqtMessageSpecificTest, LatestGroup) {
   assert_eq!(message.start_object, 0);
   assert!(!message.end_group.is_some());
   assert!(!message.end_object.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, LatestObject) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_LatestObject() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1191,10 +1291,14 @@ TEST_F(MoqtMessageSpecificTest, LatestObject) {
   assert!(!message.start_object.is_some());
   assert!(!message.end_group.is_some());
   assert!(!message.end_object.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AbsoluteStart) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_AbsoluteStart() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1214,10 +1318,14 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteStart) {
   assert_eq!(message.start_object.value(), 1);
   assert!(!message.end_group.is_some());
   assert!(!message.end_object.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExplicitEndObject) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_AbsoluteRangeExplicitEndObject() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1239,10 +1347,14 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExplicitEndObject) {
   assert_eq!(message.start_object.value(), 1);
   assert_eq!(message.end_group.value(), 7);
   assert_eq!(message.end_object.value(), 2);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AbsoluteRangeWholeEndGroup) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_AbsoluteRangeWholeEndGroup() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1264,10 +1376,14 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeWholeEndGroup) {
   assert_eq!(message.start_object.value(), 1);
   assert_eq!(message.end_group.value(), 7);
   assert!(!message.end_object.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndGroupTooLow) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_AbsoluteRangeEndGroupTooLow() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1284,10 +1400,14 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndGroupTooLow) {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "End group is less than start group");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExactlyOneObject) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_AbsoluteRangeExactlyOneObject() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1301,10 +1421,14 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExactlyOneObject) {
   };
   parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
   assert_eq!(tester.visitor.messages_received, 1);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeUpdateExactlyOneObject) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SubscribeUpdateExactlyOneObject() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x04, 0x07,  // start and end sequences
       0x00,                                // No parameters
@@ -1312,10 +1436,14 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateExactlyOneObject) {
   parser.process_data(
       absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
   assert_eq!(tester.visitor.messages_received, 1);
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndGroupTooLow) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SubscribeUpdateEndGroupTooLow() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x03, 0x06,  // start and end sequences
       0x01,                                // 1 parameter
@@ -1326,10 +1454,14 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndGroupTooLow) {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "End group is less than start group");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndObjectTooLow) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_AbsoluteRangeEndObjectTooLow() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1346,10 +1478,14 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndObjectTooLow) {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "End object comes before start object");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndObjectTooLow) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SubscribeUpdateEndObjectTooLow() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x02, 0x04, 0x01,  // start and end sequences
       0x01,                                // 1 parameter
@@ -1360,10 +1496,14 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndObjectTooLow) {
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error, "End object comes before start object");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeUpdateNoEndGroup) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SubscribeUpdateNoEndGroup() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x02, 0x00, 0x01,  // start and end sequences
       0x01,                                // 1 parameter
@@ -1375,11 +1515,15 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateNoEndGroup) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "SUBSCRIBE_UPDATE has end_object but no end_group");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
+#[test]
+fn test_AllMessagesTogether() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
   char buffer[5000];
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   size_t write = 0;
   size_t read = 0;
   int fully_received = 0;
@@ -1392,7 +1536,7 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
     }
     std::unique_ptr<TestMessageBase> message =
         CreateTestMessage(type, K_RAW_QUIC);
-    memcpy(buffer + write, message->PacketSample().data(),
+    memcpy(buffer + write, message.packet_sample().data(),
            message->total_message_size());
     size_t new_read = write + message->total_message_size() / 2;
     parser.process_data(absl::string_view(buffer + read, new_read - read),
@@ -1411,9 +1555,13 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
   assert_eq!(tester.visitor.messages_received, fully_received);
   assert!(prev_message.equal_field_values(*tester.visitor.last_message));
   assert!(!tester.visitor.parsing_error.is_some());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, DatagramSuccessful) {
+#[test]
+fn test_DatagramSuccessful() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
   ObjectDatagramMessage message;
   MoqtObject object;
   absl::string_view payload =
@@ -1422,38 +1570,54 @@ TEST_F(MoqtMessageSpecificTest, DatagramSuccessful) {
       TestMessageBase::MessageStructuredData(object);
   assert!(message.EqualFieldValues(object_metadata));
   assert_eq!(payload, "foo");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, WrongMessageInDatagram) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_WrongMessageInDatagram() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   ObjectStreamMessage message;
   MoqtObject object;
   absl::string_view payload =
       MoqtParser::ProcessDatagram(message.PacketSample(), object);
   assert!(payload.empty());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, TruncatedDatagram) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_TruncatedDatagram() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   ObjectDatagramMessage message;
   message.set_wire_image_size(4);
   MoqtObject object;
   absl::string_view payload =
       MoqtParser::ProcessDatagram(message.PacketSample(), object);
   assert!(payload.empty());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, VeryTruncatedDatagram) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_VeryTruncatedDatagram() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   char message = 0x40;
   MoqtObject object;
   absl::string_view payload = MoqtParser::ProcessDatagram(
       absl::string_view(&message, sizeof(message)), object);
   assert!(payload.empty());
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeOkInvalidContentExists) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SubscribeOkInvalidContentExists() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   SubscribeOkMessage subscribe_ok;
   subscribe_ok.SetInvalidContentExists();
   parser.process_data(subscribe_ok.PacketSample(), false);
@@ -1461,10 +1625,14 @@ TEST_F(MoqtMessageSpecificTest, SubscribeOkInvalidContentExists) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "SUBSCRIBE_OK ContentExists has invalid value");
+
+    Ok(())
 }
 
-TEST_F(MoqtMessageSpecificTest, SubscribeDoneInvalidContentExists) {
-  MoqtParser parser(K_RAW_QUIC, tester.visitor);
+#[test]
+fn test_SubscribeDoneInvalidContentExists() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+  let mut parser = MessageParser::new(K_RAW_QUIC);
   SubscribeDoneMessage subscribe_done;
   subscribe_done.SetInvalidContentExists();
   parser.process_data(subscribe_done.PacketSample(), false);
@@ -1472,5 +1640,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeDoneInvalidContentExists) {
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(*tester.visitor.parsing_error,
             "SUBSCRIBE_DONE ContentExists has invalid value");
+
+    Ok(())
 }
  */
