@@ -1,9 +1,5 @@
 use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
-use crate::message::message_test::{
-    create_test_message, MessageStructuredData, TestMessageBase, TestObjectStreamMessage,
-    TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage,
-    TestStreamMiddlerTrackMessage,
-};
+use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase, TestObjectDatagramMessage, TestObjectStreamMessage, TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage};
 use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, FilterType, MessageType, MAX_MESSSAGE_HEADER_SIZE};
 use crate::Error::ErrInvalidMessageType;
@@ -1870,25 +1866,18 @@ fn test_all_messages_together() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_DatagramSuccessful() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  ObjectDatagramMessage message;
-  MoqtObject object;
-  absl::string_view payload =
-      MoqtParser::ProcessDatagram(message.PacketSample(), object);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  TestMessageBase::MessageStructuredData object_metadata =
-      TestMessageBase::MessageStructuredData(object);
-  assert!(message.EqualFieldValues(object_metadata));
-  assert_eq!(payload, "foo");
+fn test_datagram_successful() -> Result<()> {
+    let message = TestObjectDatagramMessage::new();
+    let (object_header, payload) = MessageParser::process_datagram(&mut message.packet_sample())?;
+    let object_metadata = MessageStructuredData::Object(object_header);
+    assert!(message.equal_field_values(&object_metadata));
+    assert_eq!(payload, "foo");
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_WrongMessageInDatagram() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
@@ -1896,7 +1885,7 @@ fn test_WrongMessageInDatagram() -> Result<()> {
   ObjectStreamMessage message;
   MoqtObject object;
   absl::string_view payload =
-      MoqtParser::ProcessDatagram(message.PacketSample(), object);
+      MoqtParser::process_datagram(message.packet_sample(), object);
   assert!(payload.empty());
 
     Ok(())
@@ -1910,7 +1899,7 @@ fn test_TruncatedDatagram() -> Result<()> {
   message.set_wire_image_size(4);
   MoqtObject object;
   absl::string_view payload =
-      MoqtParser::ProcessDatagram(message.PacketSample(), object);
+      MoqtParser::process_datagram(message.packet_sample(), object);
   assert!(payload.empty());
 
     Ok(())
@@ -1922,7 +1911,7 @@ fn test_VeryTruncatedDatagram() -> Result<()> {
   let mut parser = MessageParser::new(K_RAW_QUIC);
   char message = 0x40;
   MoqtObject object;
-  absl::string_view payload = MoqtParser::ProcessDatagram(
+  absl::string_view payload = MoqtParser::process_datagram(
       absl::string_view(&message, sizeof(message)), object);
   assert!(payload.empty());
 
@@ -1935,7 +1924,7 @@ fn test_SubscribeOkInvalidContentExists() -> Result<()> {
   let mut parser = MessageParser::new(K_RAW_QUIC);
   SubscribeOkMessage subscribe_ok;
   subscribe_ok.SetInvalidContentExists();
-  parser.process_data(subscribe_ok.PacketSample(), false);
+  parser.process_data(subscribe_ok.packet_sample(), false);
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(tester.visitor.parsing_error,
@@ -1950,7 +1939,7 @@ fn test_SubscribeDoneInvalidContentExists() -> Result<()> {
   let mut parser = MessageParser::new(K_RAW_QUIC);
   SubscribeDoneMessage subscribe_done;
   subscribe_done.SetInvalidContentExists();
-  parser.process_data(subscribe_done.PacketSample(), false);
+  parser.process_data(subscribe_done.packet_sample(), false);
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
   assert_eq!(tester.visitor.parsing_error,
