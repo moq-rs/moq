@@ -44,7 +44,7 @@ pub(crate) trait TestMessageBase {
     fn expand_varints(&mut self) -> Result<()>;
 }
 
-struct TestMessage {
+pub(crate) struct TestMessage {
     message_type: MessageType,
     wire_image: [u8; MAX_MESSSAGE_HEADER_SIZE + 20],
     wire_image_size: usize,
@@ -177,7 +177,7 @@ pub(crate) fn create_test_message(
 }
 
 // Base class for the two subtypes of Object Message.
-struct TestObjectMessage {
+pub(crate) struct TestObjectMessage {
     base: TestMessage,
     object_header: ObjectHeader,
 }
@@ -263,13 +263,13 @@ impl TestMessageBase for TestObjectMessage {
     }
 }
 
-struct TestObjectStreamMessage {
-    base: TestObjectMessage,
-    raw_packet: Vec<u8>,
+pub(crate) struct TestObjectStreamMessage {
+    pub(crate) base: TestObjectMessage,
+    pub(crate) raw_packet: Vec<u8>,
 }
 
 impl TestObjectStreamMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestObjectMessage::new(MessageType::ObjectStream);
         let raw_packet = vec![
             0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, // varints

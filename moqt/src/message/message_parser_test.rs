@@ -1,5 +1,7 @@
 use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
-use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase};
+use crate::message::message_test::{
+    create_test_message, MessageStructuredData, TestMessageBase, TestObjectStreamMessage,
+};
 use crate::message::object::ObjectHeader;
 use crate::message::{ControlMessage, MessageType};
 use crate::Result;
@@ -646,48 +648,68 @@ fn test_separate_early_fin(params: (MessageType, bool)) -> Result<()> {
     );
     Ok(())
 }
-/*
+
+const K_WEB_TRANS: bool = true;
+const K_RAW_QUIC: bool = false;
+
 // Tests for message-specific error cases, and behaviors for a single message
 // type.
-class MoqtMessageSpecificTest : public quic::test::QuicTest {
- public:
-  MoqtMessageSpecificTest() {}
-
-  MoqtParserTestVisitor tester.visitor;
-
-  static constexpr bool kWebTrans = true;
-  static constexpr bool kRawQuic = false;
-};
-
-TEST_F(MoqtMessageSpecificTest, ObjectStreamSeparateFin) {
-  // OBJECT can return on an unknown-length message even without receiving a
-  // FIN.
-  MoqtParser parser(kRawQuic, tester.visitor);
-  auto message = std::make_unique<ObjectStreamMessage>();
-  parser.ProcessData(message->PacketSample(), false);
-  assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "foo");
-  assert!(!tester.visitor.end_of_message_);
-
-  parser.ProcessData(absl::string_view(), true);  // send the FIN
-  assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
-  assert!(tester.visitor.object_payload_.has_value());
-  assert_eq!(*(tester.visitor.object_payload_), "");
-  assert!(tester.visitor.end_of_message_);
-  assert!(!tester.visitor.parsing_error_.has_value());
+struct TestMessageSpecific {
+    visitor: TestParserVisitor,
 }
 
+impl TestMessageSpecific {
+    fn new() -> Self {
+        Self {
+            visitor: TestParserVisitor::new(),
+        }
+    }
+}
+
+#[test]
+fn test_object_stream_separate_fin() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    // OBJECT can return on an unknown-length message even without receiving a
+    // FIN.
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let message = TestObjectStreamMessage::new();
+    parser.process_data(&mut message.packet_sample(), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(
+        tester.visitor.object_payload,
+        Some(Bytes::from_static(b"foo"))
+    );
+    assert!(!tester.visitor.end_of_message);
+
+    let empty: Vec<u8> = vec![];
+    parser.process_data(&mut &empty[..], true); // send the FIN
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 2);
+    let last_message = tester.visitor.last_message.as_ref().unwrap();
+    assert!(message.equal_field_values(last_message));
+    assert!(tester.visitor.object_payload.is_some());
+    assert_eq!(tester.visitor.object_payload, Some(Bytes::from_static(b"")));
+    assert!(tester.visitor.end_of_message);
+    assert!(!tester.visitor.parsing_error.is_some());
+    Ok(())
+}
+/*
 // Send the header + some payload, pure payload, then pure payload to end the
 // message.
 TEST_F(MoqtMessageSpecificTest, ThreePartObject) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   auto message = std::make_unique<ObjectStreamMessage>();
   parser.ProcessData(message->PacketSample(), false);
   assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message.equal_field_values(*tester.visitor.last_message_));
   assert!(!tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "foo");
@@ -695,7 +717,7 @@ TEST_F(MoqtMessageSpecificTest, ThreePartObject) {
   // second part
   parser.ProcessData("bar", false);
   assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message.equal_field_values(*tester.visitor.last_message_));
   assert!(!tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "bar");
@@ -703,7 +725,7 @@ TEST_F(MoqtMessageSpecificTest, ThreePartObject) {
   // third part includes FIN
   parser.ProcessData("deadbeef", true);
   assert_eq!(tester.visitor.messages_received_, 3);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message.equal_field_values(*tester.visitor.last_message_));
   assert!(tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "deadbeef");
@@ -712,7 +734,7 @@ TEST_F(MoqtMessageSpecificTest, ThreePartObject) {
 
 // Send the part of header, rest of header + payload, plus payload.
 TEST_F(MoqtMessageSpecificTest, ThreePartObjectFirstIncomplete) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   auto message = std::make_unique<ObjectStreamMessage>();
 
   // first part
@@ -725,7 +747,7 @@ TEST_F(MoqtMessageSpecificTest, ThreePartObjectFirstIncomplete) {
       message->PacketSample().substr(4, message->total_message_size() - 4),
       false);
   assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message.equal_field_values(*tester.visitor.last_message_));
   assert!(!tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   // The value "93" is the overall wire image size of 100 minus the non-payload
@@ -735,7 +757,7 @@ TEST_F(MoqtMessageSpecificTest, ThreePartObjectFirstIncomplete) {
   // third part includes FIN
   parser.ProcessData("bar", true);
   assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message.equal_field_values(*tester.visitor.last_message_));
   assert!(tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "bar");
@@ -743,12 +765,12 @@ TEST_F(MoqtMessageSpecificTest, ThreePartObjectFirstIncomplete) {
 }
 
 TEST_F(MoqtMessageSpecificTest, StreamHeaderGroupFollowOn) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   // first part
   auto message1 = std::make_unique<StreamHeaderGroupMessage>();
   parser.ProcessData(message1->PacketSample(), false);
   assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message1->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message1.equal_field_values(*tester.visitor.last_message_));
   assert!(tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "foo");
@@ -757,7 +779,7 @@ TEST_F(MoqtMessageSpecificTest, StreamHeaderGroupFollowOn) {
   auto message2 = std::make_unique<StreamMiddlerGroupMessage>();
   parser.ProcessData(message2->PacketSample(), false);
   assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message2->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message2.equal_field_values(*tester.visitor.last_message_));
   assert!(tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "bar");
@@ -765,12 +787,12 @@ TEST_F(MoqtMessageSpecificTest, StreamHeaderGroupFollowOn) {
 }
 
 TEST_F(MoqtMessageSpecificTest, StreamHeaderTrackFollowOn) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   // first part
   auto message1 = std::make_unique<StreamHeaderTrackMessage>();
   parser.ProcessData(message1->PacketSample(), false);
   assert_eq!(tester.visitor.messages_received_, 1);
-  assert!(message1->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message1.equal_field_values(*tester.visitor.last_message_));
   assert!(tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "foo");
@@ -779,7 +801,7 @@ TEST_F(MoqtMessageSpecificTest, StreamHeaderTrackFollowOn) {
   auto message2 = std::make_unique<StreamMiddlerTrackMessage>();
   parser.ProcessData(message2->PacketSample(), false);
   assert_eq!(tester.visitor.messages_received_, 2);
-  assert!(message2->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(message2.equal_field_values(*tester.visitor.last_message_));
   assert!(tester.visitor.end_of_message_);
   assert!(tester.visitor.object_payload_.has_value());
   assert_eq!(*(tester.visitor.object_payload_), "bar");
@@ -787,7 +809,7 @@ TEST_F(MoqtMessageSpecificTest, StreamHeaderTrackFollowOn) {
 }
 
 TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsInvalid) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions
       0x03,                          // 3 params
@@ -802,7 +824,7 @@ TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsInvalid) {
 }
 
 TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsInvalid) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x41, 0x01,
       0x01,                         // 1 param
@@ -817,7 +839,7 @@ TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsInvalid) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SetupRoleAppearsTwice) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions
       0x03,                          // 3 params
@@ -833,7 +855,7 @@ TEST_F(MoqtMessageSpecificTest, SetupRoleAppearsTwice) {
 }
 
 TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsMissing) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x01,                          // 1 param
@@ -848,7 +870,7 @@ TEST_F(MoqtMessageSpecificTest, ClientSetupRoleIsMissing) {
 }
 
 TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsMissing) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x41, 0x01, 0x00,  // 1 param
   };
@@ -861,7 +883,7 @@ TEST_F(MoqtMessageSpecificTest, ServerSetupRoleIsMissing) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SetupRoleVarintLengthIsWrong) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x40,                   // type
       0x02, 0x01, 0x02,             // versions
@@ -879,7 +901,7 @@ TEST_F(MoqtMessageSpecificTest, SetupRoleVarintLengthIsWrong) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SetupPathFromServer) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x41,
       0x01,                          // version = 1
@@ -894,7 +916,7 @@ TEST_F(MoqtMessageSpecificTest, SetupPathFromServer) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SetupPathAppearsTwice) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x03,                          // 3 params
@@ -911,7 +933,7 @@ TEST_F(MoqtMessageSpecificTest, SetupPathAppearsTwice) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SetupPathOverWebtrans) {
-  MoqtParser parser(kWebTrans, tester.visitor);
+  MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x02,                          // 2 params
@@ -927,7 +949,7 @@ TEST_F(MoqtMessageSpecificTest, SetupPathOverWebtrans) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SetupPathMissing) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char setup[] = {
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x01,                          // 1 param
@@ -942,7 +964,7 @@ TEST_F(MoqtMessageSpecificTest, SetupPathMissing) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeAuthorizationInfoTwice) {
-  MoqtParser parser(kWebTrans, tester.visitor);
+  MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
       0x04, 0x61, 0x62, 0x63, 0x64,              // track_name = "abcd"
@@ -960,7 +982,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeAuthorizationInfoTwice) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateAuthorizationInfoTwice) {
-  MoqtParser parser(kWebTrans, tester.visitor);
+  MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x05, 0x06,  // start and end sequences
       0x02,                                // 2 parameters
@@ -977,7 +999,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateAuthorizationInfoTwice) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AnnounceAuthorizationInfoTwice) {
-  MoqtParser parser(kWebTrans, tester.visitor);
+  MoqtParser parser(K_WEB_TRANS, tester.visitor);
   char announce[] = {
       0x06, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
       0x02,                          // 2 params
@@ -993,7 +1015,7 @@ TEST_F(MoqtMessageSpecificTest, AnnounceAuthorizationInfoTwice) {
 }
 
 TEST_F(MoqtMessageSpecificTest, FinMidPayload) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   auto message = std::make_unique<StreamHeaderGroupMessage>();
   parser.ProcessData(
       message->PacketSample().substr(0, message->total_message_size() - 1),
@@ -1005,7 +1027,7 @@ TEST_F(MoqtMessageSpecificTest, FinMidPayload) {
 }
 
 TEST_F(MoqtMessageSpecificTest, PartialPayloadThenFin) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   auto message = std::make_unique<StreamHeaderTrackMessage>();
   parser.ProcessData(
       message->PacketSample().substr(0, message->total_message_size() - 1),
@@ -1019,7 +1041,7 @@ TEST_F(MoqtMessageSpecificTest, PartialPayloadThenFin) {
 }
 
 TEST_F(MoqtMessageSpecificTest, DataAfterFin) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   parser.ProcessData(absl::string_view(), true);  // Find FIN
   parser.ProcessData("foo", false);
   assert!(tester.visitor.parsing_error_.has_value());
@@ -1028,7 +1050,7 @@ TEST_F(MoqtMessageSpecificTest, DataAfterFin) {
 }
 
 TEST_F(MoqtMessageSpecificTest, NonNormalObjectHasPayload) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char object_stream[] = {
       0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x02,  // varints
       0x66, 0x6f, 0x6f,                          // payload = "foo"
@@ -1042,7 +1064,7 @@ TEST_F(MoqtMessageSpecificTest, NonNormalObjectHasPayload) {
 }
 
 TEST_F(MoqtMessageSpecificTest, InvalidObjectStatus) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char object_stream[] = {
       0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x06,  // varints
       0x66, 0x6f, 0x6f,                          // payload = "foo"
@@ -1055,7 +1077,7 @@ TEST_F(MoqtMessageSpecificTest, InvalidObjectStatus) {
 }
 
 TEST_F(MoqtMessageSpecificTest, Setup2KB) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char big_message[2 * kMaxMessageHeaderSize];
   quic::QuicDataWriter writer(sizeof(big_message), big_message);
   writer.WriteVarInt62(static_cast<uint64_t>(MoqtMessageType::kServerSetup));
@@ -1074,7 +1096,7 @@ TEST_F(MoqtMessageSpecificTest, Setup2KB) {
 }
 
 TEST_F(MoqtMessageSpecificTest, UnknownMessageType) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char message[4];
   quic::QuicDataWriter writer(sizeof(message), message);
   writer.WriteVarInt62(0xbeef);  // unknown message type
@@ -1085,7 +1107,7 @@ TEST_F(MoqtMessageSpecificTest, UnknownMessageType) {
 }
 
 TEST_F(MoqtMessageSpecificTest, LatestGroup) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1106,7 +1128,7 @@ TEST_F(MoqtMessageSpecificTest, LatestGroup) {
 }
 
 TEST_F(MoqtMessageSpecificTest, LatestObject) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1127,7 +1149,7 @@ TEST_F(MoqtMessageSpecificTest, LatestObject) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteStart) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1150,7 +1172,7 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteStart) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExplicitEndObject) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1175,7 +1197,7 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExplicitEndObject) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeWholeEndGroup) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1200,7 +1222,7 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeWholeEndGroup) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndGroupTooLow) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1220,7 +1242,7 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndGroupTooLow) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExactlyOneObject) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1237,7 +1259,7 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeExactlyOneObject) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateExactlyOneObject) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x04, 0x07,  // start and end sequences
       0x00,                                // No parameters
@@ -1248,7 +1270,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateExactlyOneObject) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndGroupTooLow) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x03, 0x06,  // start and end sequences
       0x01,                                // 1 parameter
@@ -1262,7 +1284,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndGroupTooLow) {
 }
 
 TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndObjectTooLow) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe[] = {
       0x03, 0x01, 0x02,              // id and alias
       0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
@@ -1282,7 +1304,7 @@ TEST_F(MoqtMessageSpecificTest, AbsoluteRangeEndObjectTooLow) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndObjectTooLow) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x02, 0x04, 0x01,  // start and end sequences
       0x01,                                // 1 parameter
@@ -1296,7 +1318,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateEndObjectTooLow) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeUpdateNoEndGroup) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x02, 0x00, 0x01,  // start and end sequences
       0x01,                                // 1 parameter
@@ -1312,7 +1334,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeUpdateNoEndGroup) {
 
 TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
   char buffer[5000];
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   size_t write = 0;
   size_t read = 0;
   int fully_received = 0;
@@ -1324,7 +1346,7 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
       continue;  // Objects cannot share a stream with other messages.
     }
     std::unique_ptr<TestMessageBase> message =
-        CreateTestMessage(type, kRawQuic);
+        CreateTestMessage(type, K_RAW_QUIC);
     memcpy(buffer + write, message->PacketSample().data(),
            message->total_message_size());
     size_t new_read = write + message->total_message_size() / 2;
@@ -1332,7 +1354,7 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
                        false);
     assert_eq!(tester.visitor.messages_received_, fully_received);
     if (prev_message != nullptr) {
-      assert!(prev_message->EqualFieldValues(*tester.visitor.last_message_));
+      assert!(prev_message.equal_field_values(*tester.visitor.last_message_));
     }
     fully_received++;
     read = new_read;
@@ -1342,7 +1364,7 @@ TEST_F(MoqtMessageSpecificTest, AllMessagesTogether) {
   // Deliver the rest
   parser.ProcessData(absl::string_view(buffer + read, write - read), true);
   assert_eq!(tester.visitor.messages_received_, fully_received);
-  assert!(prev_message->EqualFieldValues(*tester.visitor.last_message_));
+  assert!(prev_message.equal_field_values(*tester.visitor.last_message_));
   assert!(!tester.visitor.parsing_error_.has_value());
 }
 
@@ -1358,7 +1380,7 @@ TEST_F(MoqtMessageSpecificTest, DatagramSuccessful) {
 }
 
 TEST_F(MoqtMessageSpecificTest, WrongMessageInDatagram) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   ObjectStreamMessage message;
   MoqtObject object;
   absl::string_view payload =
@@ -1367,7 +1389,7 @@ TEST_F(MoqtMessageSpecificTest, WrongMessageInDatagram) {
 }
 
 TEST_F(MoqtMessageSpecificTest, TruncatedDatagram) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   ObjectDatagramMessage message;
   message.set_wire_image_size(4);
   MoqtObject object;
@@ -1377,7 +1399,7 @@ TEST_F(MoqtMessageSpecificTest, TruncatedDatagram) {
 }
 
 TEST_F(MoqtMessageSpecificTest, VeryTruncatedDatagram) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   char message = 0x40;
   MoqtObject object;
   absl::string_view payload = MoqtParser::ProcessDatagram(
@@ -1386,7 +1408,7 @@ TEST_F(MoqtMessageSpecificTest, VeryTruncatedDatagram) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeOkInvalidContentExists) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   SubscribeOkMessage subscribe_ok;
   subscribe_ok.SetInvalidContentExists();
   parser.ProcessData(subscribe_ok.PacketSample(), false);
@@ -1397,7 +1419,7 @@ TEST_F(MoqtMessageSpecificTest, SubscribeOkInvalidContentExists) {
 }
 
 TEST_F(MoqtMessageSpecificTest, SubscribeDoneInvalidContentExists) {
-  MoqtParser parser(kRawQuic, tester.visitor);
+  MoqtParser parser(K_RAW_QUIC, tester.visitor);
   SubscribeDoneMessage subscribe_done;
   subscribe_done.SetInvalidContentExists();
   parser.ProcessData(subscribe_done.PacketSample(), false);
