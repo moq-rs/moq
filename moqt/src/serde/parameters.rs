@@ -1,7 +1,6 @@
-use crate::message::message_parser::ParserErrorCode;
 use crate::serde::{Deserializer, Serializer};
 use crate::{Error, Result};
-use bytes::{Buf, BufMut};
+use bytes::BufMut;
 use std::collections::HashMap;
 use std::io::Cursor;
 
@@ -26,55 +25,8 @@ impl TryFrom<u64> for ParameterKey {
     }
 }
 
-//TODO: REMOVE IT
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct Parameters(pub HashMap<u64, Vec<u8>>);
-
-impl Deserializer for Parameters {
-    fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
-        let mut params = HashMap::new();
-
-        // I hate this encoding so much; let me encode my role and get on with my life.
-        let (count, mut tl) = u64::deserialize(r)?;
-        for _ in 0..count {
-            let (kind, kl) = u64::deserialize(r)?;
-            if params.contains_key(&kind) {
-                return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
-                    format!("parameter {} appears twice", kind),
-                ));
-            }
-
-            let (size, sl) = usize::deserialize(r)?;
-            if r.remaining() < size {
-                return Err(Error::ErrBufferTooShort);
-            }
-
-            //FIXME: Don't allocate the entire requested size to avoid a possible attack
-            // Instead, we allocate up to 1024 and keep appending as we read further.
-            let buf = if kind == ParameterKey::Path as u64
-                || kind == ParameterKey::AuthorizationInfo as u64
-            {
-                let mut size_buf = vec![];
-                let size_buf_len = size.serialize(&mut size_buf)?;
-
-                let mut buf = vec![0; size + size_buf_len];
-                buf[..size_buf_len].copy_from_slice(&size_buf);
-                r.copy_to_slice(&mut buf[size_buf_len..]);
-                buf
-            } else {
-                let mut buf = vec![0; size];
-                r.copy_to_slice(&mut buf);
-                buf
-            };
-
-            params.insert(kind, buf);
-            tl += kl + sl + size;
-        }
-
-        Ok((Parameters(params), tl))
-    }
-}
 
 impl Serializer for Parameters {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
