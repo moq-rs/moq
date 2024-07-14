@@ -386,30 +386,89 @@ fn test_one_byte_at_atime() -> Result<()> {
     }
     Ok(())
 }
-/*
-TEST_P(MoqtParserTest, OneByteAtATimeLongerVarints) {
-  std::unique_ptr<TestMessageBase> message = MakeMessage(message_type_);
-  message->ExpandVarints();
-  size_t kObjectPayloadSize = 3;
-  for (size_t i = 0; i < message->total_message_size(); ++i) {
-    if (!IsObjectMessage(message_type_)) {
-      assert_eq!(tester.visitor.messages_received_, 0);
-    }
-    assert!(!tester.visitor.end_of_message_);
-    parser_.ProcessData(message->PacketSample().substr(i, 1), false);
-  }
-  assert_eq!(tester.visitor.messages_received_,
-            (IsObjectMessage(message_type_) ? (kObjectPayloadSize + 1) : 1));
-  if (IsObjectWithoutPayloadLength(message_type_)) {
-    assert!(!tester.visitor.end_of_message_);
-    parser_.ProcessData(absl::string_view(), true);  // Needs the FIN
-    assert_eq!(tester.visitor.messages_received_, kObjectPayloadSize + 2);
-  }
-  assert!(message->EqualFieldValues(*tester.visitor.last_message_));
-  assert!(tester.visitor.end_of_message_);
-  assert!(!tester.visitor.parsing_error_.has_value());
-}
 
+#[test]
+fn test_one_byte_at_a_time_longer_varints() -> Result<()> {
+    for params in get_test_parser_params() {
+        let mut tester = TestParser::new(&params);
+
+        let mut message = tester.make_message();
+        assert!(
+            message.expand_varints().is_ok(),
+            "message type {:?}",
+            tester.message_type
+        );
+
+        let total_message_size = message.packet_sample().len();
+        let object_payload_size = 3;
+        for i in 0..total_message_size {
+            if !tester.message_type.is_object_message() {
+                assert_eq!(
+                    0, tester.visitor.messages_received,
+                    "message type {:?}",
+                    tester.message_type
+                );
+            }
+            assert!(
+                !tester.visitor.end_of_message,
+                "message type {:?}",
+                tester.message_type
+            );
+            tester
+                .parser
+                .process_data(&mut &message.packet_sample()[i..i + 1], false);
+            while let Some(event) = tester.parser.poll_event() {
+                tester.visitor.handle_event(event);
+            }
+        }
+        assert_eq!(
+            if tester.message_type.is_object_message() {
+                object_payload_size + 1
+            } else {
+                1
+            },
+            tester.visitor.messages_received,
+            "message type {:?}",
+            tester.message_type
+        );
+        if tester.message_type.is_object_without_payload_length() {
+            assert!(
+                !tester.visitor.end_of_message,
+                "message type {:?}",
+                tester.message_type
+            );
+            let empty: Vec<u8> = vec![];
+            tester.parser.process_data(&mut &empty[..], true); // Needs the FIN
+            while let Some(event) = tester.parser.poll_event() {
+                tester.visitor.handle_event(event);
+            }
+            assert_eq!(
+                object_payload_size + 2,
+                tester.visitor.messages_received,
+                "message type {:?}",
+                tester.message_type
+            );
+        }
+        let last_message = tester.visitor.last_message.as_ref().unwrap();
+        assert!(
+            message.equal_field_values(last_message),
+            "message type {:?}",
+            tester.message_type
+        );
+        assert!(
+            tester.visitor.end_of_message,
+            "message type {:?}",
+            tester.message_type
+        );
+        assert!(
+            !tester.visitor.parsing_error.is_some(),
+            "message type {:?}",
+            tester.message_type
+        );
+    }
+    Ok(())
+}
+/*
 TEST_P(MoqtParserTest, EarlyFin) {
   std::unique_ptr<TestMessageBase> message = MakeMessage(message_type_);
   size_t first_data_size = message->total_message_size() / 2;
