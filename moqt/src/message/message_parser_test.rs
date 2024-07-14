@@ -1721,77 +1721,83 @@ fn test_subscribe_update_end_group_too_low() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_absolute_range_end_object_too_low() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let subscribe = vec![
+        0x03, 0x01, 0x02, // id and alias
+        0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+        0x04, // filter_type = kAbsoluteRange
+        0x04, // start_group = 4
+        0x01, // start_object = 1
+        0x04, // end_group = 4
+        0x01, // end_object = 0
+        0x01, // 1 parameter
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("End object comes before start object".to_string())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_subscribe_update_end_object_too_low() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let subscribe_update = vec![
+        0x02, 0x02, 0x03, 0x02, 0x04, 0x01, // start and end sequences
+        0x01, // 1 parameter
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe_update[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("End object comes before start object".to_string())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_subscribe_update_no_end_group() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let subscribe_update = vec![
+        0x02, 0x02, 0x03, 0x02, 0x00, 0x01, // start and end sequences
+        0x01, // 1 parameter
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe_update[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("SUBSCRIBE_UPDATE has end_object but no end_group".to_string())
+    );
+
+    Ok(())
+}
 /*
-#[test]
-fn test_AbsoluteRangeEndObjectTooLow() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char subscribe[] = {
-      0x03, 0x01, 0x02,              // id and alias
-      0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
-      0x04, 0x61, 0x62, 0x63, 0x64,  // track_name = "abcd"
-      0x04,                          // filter_type = kAbsoluteRange
-      0x04,                          // start_group = 4
-      0x01,                          // start_object = 1
-      0x04,                          // end_group = 4
-      0x01,                          // end_object = 0
-      0x01,                          // 1 parameter
-      0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
-  };
-  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "End object comes before start object");
-
-    Ok(())
-}
-
-#[test]
-fn test_SubscribeUpdateEndObjectTooLow() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char subscribe_update[] = {
-      0x02, 0x02, 0x03, 0x02, 0x04, 0x01,  // start and end sequences
-      0x01,                                // 1 parameter
-      0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
-  };
-  parser.process_data(
-      absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "End object comes before start object");
-
-    Ok(())
-}
-
-#[test]
-fn test_SubscribeUpdateNoEndGroup() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char subscribe_update[] = {
-      0x02, 0x02, 0x03, 0x02, 0x00, 0x01,  // start and end sequences
-      0x01,                                // 1 parameter
-      0x02, 0x03, 0x62, 0x61, 0x72,        // authorization_info = "bar"
-  };
-  parser.process_data(
-      absl::string_view(subscribe_update, sizeof(subscribe_update)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "SUBSCRIBE_UPDATE has end_object but no end_group");
-
-    Ok(())
-}
-
 #[test]
 fn test_AllMessagesTogether() -> Result<()> {
     let mut tester = TestMessageSpecific::new();

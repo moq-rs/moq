@@ -23,6 +23,12 @@ impl Deserializer for SubscribeUpdate {
         let (end, egol) = FullSequence::deserialize(r)?;
 
         let end = if end.group_id == 0 {
+            if end.object_id > 0 {
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    "SUBSCRIBE_UPDATE has end_object but no end_group".to_string(),
+                ));
+            }
             None
         } else {
             let end = if end.object_id == 0 {
