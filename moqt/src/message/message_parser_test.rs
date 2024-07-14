@@ -1111,77 +1111,92 @@ fn test_setup_path_appears_twice() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_setup_path_over_webtrans() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_WEB_TRANS);
+    let setup = vec![
+        0x40, 0x40, 0x02, 0x01, 0x02, // versions = 1, 2
+        0x02, // 2 params
+        0x00, 0x01, 0x03, // role = PubSub
+        0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
+    ];
+    parser.process_data(&mut &setup[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("WebTransport connection is using PATH parameter in SETUP".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_setup_path_missing() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let setup = vec![
+        0x40, 0x40, 0x02, 0x01, 0x02, // versions = 1, 2
+        0x01, // 1 param
+        0x00, 0x01, 0x03, // role = PubSub
+    ];
+    parser.process_data(&mut &setup[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("PATH SETUP parameter missing from Client message over QUIC".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_subscribe_authorization_info_twice() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_WEB_TRANS);
+    let subscribe = vec![
+        0x03, 0x01, 0x02, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+        0x02, // filter_type = kLatestObject
+        0x02, // two params
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
 /*
-#[test]
-fn test_SetupPathOverWebtrans() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_WEB_TRANS);
-  let setup = vec![
-      0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
-      0x02,                          // 2 params
-      0x00, 0x01, 0x03,              // role = PubSub
-      0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
-  };
-  parser.process_data(&mut &setup[..], false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "WebTransport connection is using PATH parameter in SETUP");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_SetupPathMissing() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  let setup = vec![
-      0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
-      0x01,                          // 1 param
-      0x00, 0x01, 0x03,              // role = PubSub
-  };
-  parser.process_data(&mut &setup[..], false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "PATH SETUP parameter missing from Client message over QUIC");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_SubscribeAuthorizationInfoTwice() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_WEB_TRANS);
-  char subscribe[] = {
-      0x03, 0x01, 0x02, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
-      0x04, 0x61, 0x62, 0x63, 0x64,              // track_name = "abcd"
-      0x02,                                      // filter_type = kLatestObject
-      0x02,                                      // two params
-      0x02, 0x03, 0x62, 0x61, 0x72,              // authorization_info = "bar"
-      0x02, 0x03, 0x62, 0x61, 0x72,              // authorization_info = "bar"
-  };
-  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
 #[test]
 fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
