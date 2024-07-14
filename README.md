@@ -6,6 +6,9 @@
  <a href="https://github.com/moq-rs/moq/actions">
   <img src="https://github.com/moq-rs/moq/workflows/cargo/badge.svg">
  </a>
+ <a href="https://codecov.io/gh/moq-rs/moq">
+  <img src="https://codecov.io/gh/moq-rs/moq/graph/badge.svg?token=C8PHISLUZF">
+ </a>
  <a href="https://deps.rs/repo/github/moq-rs/moq">
   <img src="https://deps.rs/repo/github/moq-rs/moq/status.svg">
  </a>
