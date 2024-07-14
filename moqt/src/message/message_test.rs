@@ -312,13 +312,13 @@ impl TestMessageBase for TestObjectStreamMessage {
     }
 }
 
-struct TestObjectDatagramMessage {
+pub(crate) struct TestObjectDatagramMessage {
     base: TestObjectMessage,
     raw_packet: Vec<u8>,
 }
 
 impl TestObjectDatagramMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestObjectMessage::new(MessageType::ObjectDatagram);
         let raw_packet = vec![
             0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, // varints
@@ -363,13 +363,13 @@ impl TestMessageBase for TestObjectDatagramMessage {
 
 // Concatentation of the base header and the object-specific header. Follow-on
 // object headers are handled in a different class.
-struct TestStreamHeaderTrackMessage {
+pub(crate) struct TestStreamHeaderTrackMessage {
     base: TestObjectMessage,
     raw_packet: Vec<u8>,
 }
 
 impl TestStreamHeaderTrackMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestObjectMessage::new(MessageType::StreamHeaderTrack);
         // Some tests check that a FIN sent at the halfway point of a message results
         // in an error. Without the unnecessary expanded varint 0x0405, the halfway
@@ -420,13 +420,13 @@ impl TestMessageBase for TestStreamHeaderTrackMessage {
     }
 }
 
-struct TestStreamMiddlerTrackMessage {
+pub(crate) struct TestStreamMiddlerTrackMessage {
     base: TestObjectMessage,
     raw_packet: Vec<u8>,
 }
 
 impl TestStreamMiddlerTrackMessage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut base = TestObjectMessage::new(MessageType::StreamHeaderTrack);
         let raw_packet = vec![
             0x09, 0x0a, // object middler
