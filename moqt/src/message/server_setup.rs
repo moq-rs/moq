@@ -15,7 +15,8 @@ impl Deserializer for ServerSetup {
 
         let (mut parameters, pl) = Parameters::deserialize(r)?;
         let role: Role = parameters
-            .remove(ParameterKey::Role)?
+            .remove(ParameterKey::Role)
+            .map_err(|err| Error::ErrParseError(err.to_string()))?
             .ok_or(Error::ErrMissingParameter)?;
 
         Ok((
