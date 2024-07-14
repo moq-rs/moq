@@ -199,8 +199,11 @@ fn test_one_message_with_long_varints() -> Result<()> {
         let mut tester = TestParser::new(&params);
 
         let mut message = tester.make_message();
-        assert!(message.expand_varints().is_ok(), "message type {:?}",
-                tester.message_type);
+        assert!(
+            message.expand_varints().is_ok(),
+            "message type {:?}",
+            tester.message_type
+        );
         tester
             .parser
             .process_data(&mut message.packet_sample(), true);
@@ -240,34 +243,74 @@ fn test_one_message_with_long_varints() -> Result<()> {
     }
     Ok(())
 }
-/*
 
-TEST_P(MoqtParserTest, TwoPartMessage) {
-  std::unique_ptr<TestMessageBase> message = MakeMessage(message_type_);
-  // The test Object message has payload for less then half the message length,
-  // so splitting the message in half will prevent the first half from being
-  // processed.
-  size_t first_data_size = message->total_message_size() / 2;
-  if (message_type_ == MoqtMessageType::kStreamHeaderTrack) {
-    // The boundary happens to fall right after the stream header, so move it.
-    ++first_data_size;
-  }
-  parser_.ProcessData(message->PacketSample().substr(0, first_data_size),
-                      false);
-  EXPECT_EQ(visitor_.messages_received_, 0);
-  parser_.ProcessData(
-      message->PacketSample().substr(
-          first_data_size, message->total_message_size() - first_data_size),
-      true);
-  EXPECT_EQ(visitor_.messages_received_, 1);
-  EXPECT_TRUE(message->EqualFieldValues(*visitor_.last_message_));
-  if (IsObjectMessage(message_type_)) {
-    EXPECT_EQ(visitor_.object_payload_, "foo");
-  }
-  EXPECT_TRUE(visitor_.end_of_message_);
-  EXPECT_FALSE(visitor_.parsing_error_.has_value());
+#[test]
+fn test_two_part_message() -> Result<()> {
+    for params in get_test_parser_params() {
+        let mut tester = TestParser::new(&params);
+
+        let message = tester.make_message();
+        let total_message_size = message.packet_sample().len();
+        // The test Object message has payload for less then half the message length,
+        // so splitting the message in half will prevent the first half from being
+        // processed.
+        let mut first_data_size = total_message_size / 2;
+        if tester.message_type == MessageType::StreamHeaderTrack {
+            // The boundary happens to fall right after the stream header, so move it.
+            first_data_size += 1;
+        }
+        tester
+            .parser
+            .process_data(&mut &message.packet_sample()[..first_data_size], false);
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
+        }
+        assert_eq!(
+            0, tester.visitor.messages_received,
+            "message type {:?}",
+            tester.message_type
+        );
+        tester.parser.process_data(
+            &mut &message.packet_sample()[first_data_size..total_message_size],
+            true,
+        );
+        while let Some(event) = tester.parser.poll_event() {
+            tester.visitor.handle_event(event);
+        }
+        assert_eq!(
+            1, tester.visitor.messages_received,
+            "message type {:?}",
+            tester.message_type
+        );
+
+        let last_message = tester.visitor.last_message.as_ref().unwrap();
+        assert!(
+            message.equal_field_values(last_message),
+            "message type {:?}",
+            tester.message_type
+        );
+        if tester.message_type.is_object_message() {
+            assert_eq!(
+                "foo",
+                tester.visitor.object_payload.as_ref().unwrap(),
+                "message type {:?}",
+                tester.message_type
+            );
+        }
+        assert!(
+            tester.visitor.end_of_message,
+            "message type {:?}",
+            tester.message_type
+        );
+        assert!(
+            !tester.visitor.parsing_error.is_some(),
+            "message type {:?}",
+            tester.message_type
+        );
+    }
+    Ok(())
 }
-
+/*
 TEST_P(MoqtParserTest, OneByteAtATime) {
   std::unique_ptr<TestMessageBase> message = MakeMessage(message_type_);
   size_t kObjectPayloadSize = 3;

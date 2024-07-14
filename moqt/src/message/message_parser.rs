@@ -141,40 +141,34 @@ impl MessageParser {
         }
 
         while self.buffered_message.has_remaining() {
-            match self.process_message(fin) {
-                Ok(message_len) => {
-                    self.buffered_message.advance(message_len);
+            let message_len = self.process_message(fin);
+            if message_len == 0 {
+                if self.buffered_message.remaining() > MAX_MESSSAGE_HEADER_SIZE {
+                    self.parse_error(
+                        ParserErrorCode::InternalError,
+                        "Cannot parse non-OBJECT messages > 2KB".to_string(),
+                    );
+                    return;
                 }
-                Err(_) => {
-                    if self.buffered_message.remaining() > MAX_MESSSAGE_HEADER_SIZE {
-                        self.parse_error(
-                            ParserErrorCode::InternalError,
-                            "Cannot parse non-OBJECT messages > 2KB".to_string(),
-                        );
-                        return;
-                    }
-                    if fin {
-                        self.parse_error(
-                            ParserErrorCode::ProtocolViolation,
-                            "FIN after incomplete message".to_string(),
-                        );
-                        return;
-                    }
-                    break;
+                if fin {
+                    self.parse_error(
+                        ParserErrorCode::ProtocolViolation,
+                        "FIN after incomplete message".to_string(),
+                    );
+                    return;
                 }
+                break;
             }
+            self.buffered_message.advance(message_len);
         }
     }
 
     /// Provide a separate path for datagrams. Returns the ObjectHeader and payload bytes
     pub fn process_datagram<R: Buf>(r: &mut R) -> Result<(ObjectHeader, Bytes)> {
-        let (message_type, _) = MessageType::deserialize(r)?;
-        if message_type != MessageType::ObjectDatagram {
-            return Err(Error::ErrInvalidMessageType(message_type as u64));
+        let (object_header, _) = MessageParser::parse_object_header(r)?;
+        if object_header.object_forwarding_preference != ObjectForwardingPreference::Datagram {
+            return Err(Error::ErrProtocolViolation("invalid datagram".to_string()));
         }
-
-        let (object_header, _) = MessageParser::parse_object_header(r, message_type)?;
-
         Ok((object_header, r.copy_to_bytes(r.remaining())))
     }
 
@@ -182,7 +176,7 @@ impl MessageParser {
         self.parser_events.pop_front()
     }
 
-    fn process_message(&mut self, fin: bool) -> Result<usize> {
+    fn process_message(&mut self, fin: bool) -> usize {
         if self.object_stream_initialized() && !self.object_payload_in_progress() {
             // This is a follow-on object in a stream.
             if let Some(object_metadata) = self.object_metadata.as_ref() {
@@ -195,13 +189,17 @@ impl MessageParser {
             }
         }
         let mut mt_reader = self.buffered_message.as_ref();
-        let (message_type, _) = MessageType::deserialize(&mut mt_reader)?;
+        let message_type = match MessageType::deserialize(&mut mt_reader) {
+            Ok((message_type, _)) => message_type,
+            Err(_) => return 0,
+        };
+
         if message_type == MessageType::ObjectDatagram {
             self.parse_error(
                 ParserErrorCode::ProtocolViolation,
                 "Received OBJECT_DATAGRAM on strea".to_string(),
             );
-            Err(Error::ErrInvalidMessageType(message_type as u64))
+            0
         } else if message_type == MessageType::ObjectStream
             || message_type == MessageType::StreamHeaderTrack
             || message_type == MessageType::StreamHeaderGroup
@@ -209,24 +207,31 @@ impl MessageParser {
             self.process_object(message_type, fin)
         } else {
             let mut msg_reader = self.buffered_message.as_ref();
-            let (control_message, message_len) = ControlMessage::deserialize(&mut msg_reader)?;
+            let (control_message, message_len) = match ControlMessage::deserialize(&mut msg_reader)
+            {
+                Ok((control_message, message_len)) => (control_message, message_len),
+                Err(_) => return 0,
+            };
             self.parser_events
                 .push_back(MessageParserEvent::ControlMessage(control_message));
-            Ok(message_len)
+            message_len
         }
     }
 
-    fn process_object(&mut self, message_type: MessageType, fin: bool) -> Result<usize> {
+    fn process_object(&mut self, message_type: MessageType, fin: bool) -> usize {
         let mut processed_data = 0;
         assert!(!self.object_payload_in_progress());
         if !self.object_stream_initialized() {
-            let mut mt_reader = self.buffered_message.as_ref();
-            let (_, mtl) = MessageType::deserialize(&mut mt_reader)?;
-            processed_data += mtl;
-
-            let mut oh_reader = &self.buffered_message.as_ref()[processed_data..];
-            let (object_metadata, obl) =
-                MessageParser::parse_object_header(&mut oh_reader, message_type)?;
+            let mut oh_reader = self.buffered_message.as_ref();
+            let (object_metadata, obl) = match MessageParser::parse_object_header(&mut oh_reader) {
+                Ok((object_metadata, obl)) => (object_metadata, obl),
+                Err(err) => {
+                    if let Error::ErrProtocolViolation(reason) = &err {
+                        self.parse_error(ParserErrorCode::ProtocolViolation, reason.to_string());
+                    }
+                    return 0;
+                }
+            };
             self.object_metadata = Some(object_metadata);
             processed_data += obl;
         }
@@ -247,17 +252,14 @@ impl MessageParser {
                 if let Error::ErrProtocolViolation(reason) = &err {
                     self.parse_error(ParserErrorCode::ProtocolViolation, reason.to_string());
                 }
-                return Err(err);
             }
-        }
+        };
 
-        Ok(processed_data)
+        processed_data
     }
 
-    fn parse_object_header<R: Buf>(
-        r: &mut R,
-        message_type: MessageType,
-    ) -> Result<(ObjectHeader, usize)> {
+    fn parse_object_header<R: Buf>(r: &mut R) -> Result<(ObjectHeader, usize)> {
+        let (message_type, mtl) = MessageType::deserialize(r)?;
         let (subscribe_id, sil) = u64::deserialize(r)?;
         let (track_alias, tal) = u64::deserialize(r)?;
         let (group_id, gil) = if message_type != MessageType::StreamHeaderTrack {
@@ -295,7 +297,7 @@ impl MessageParser {
                 object_forwarding_preference,
                 object_payload_length: None,
             },
-            sil + tal + gil + oil + osol + osl,
+            mtl + sil + tal + gil + oil + osol + osl,
         ))
     }
 
