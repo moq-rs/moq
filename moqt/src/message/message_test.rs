@@ -259,7 +259,8 @@ impl TestMessageBase for TestObjectMessage {
     }
 
     fn expand_varints(&mut self) -> Result<()> {
-        todo!()
+        // do nothing.
+        Ok(())
     }
 }
 

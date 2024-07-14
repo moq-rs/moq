@@ -1000,69 +1000,75 @@ fn test_client_setup_role_is_missing() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_server_setup_role_is_missing() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let setup = vec![
+        0x40, 0x41, 0x01, 0x00, // 1 param
+    ];
+    parser.process_data(&mut &setup[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("ROLE parameter missing".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+/*FIXME:
+#[test]
+fn test_setup_role_varint_length_is_wrong() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let setup = vec![
+        0x40, 0x40,                   // type
+        0x02, 0x01, 0x02,             // versions
+        0x02,                         // 2 parameters
+        0x00, 0x02, 0x03,             // role = PubSub, but length is 2
+        0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
+    ];
+    parser.process_data(&mut &setup[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(tester.visitor.parsing_error,
+               Some("Parameter length does not match varint encoding".to_string()));
+
+    assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ParameterLengthMismatch);
+
+    Ok(())
+}*/
 /*
-#[test]
-fn test_ServerSetupRoleIsMissing() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
-      0x40, 0x41, 0x01, 0x00,  // 1 param
-  };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
-            "ROLE parameter missing from SERVER_SETUP message");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_SetupRoleVarintLengthIsWrong() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
-      0x40, 0x40,                   // type
-      0x02, 0x01, 0x02,             // versions
-      0x02,                         // 2 parameters
-      0x00, 0x02, 0x03,             // role = PubSub, but length is 2
-      0x01, 0x03, 0x66, 0x6f, 0x6f  // path = "foo"
-  };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
-            "Parameter length does not match varint encoding");
-
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ParameterLengthMismatch);
-
-    Ok(())
-}
-
 #[test]
 fn test_SetupPathFromServer() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
   let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
+  let setup = vec![
       0x40, 0x41,
       0x01,                          // version = 1
       0x01,                          // 1 param
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  parser.process_data(&mut &setup[..], false);
   while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "PATH parameter in SERVER_SETUP");
+  assert_eq!(tester.visitor.parsing_error, "PATH parameter in SERVER_SETUP");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
@@ -1072,20 +1078,20 @@ fn test_SetupPathFromServer() -> Result<()> {
 fn test_SetupPathAppearsTwice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
   let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
+  let setup = vec![
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x03,                          // 3 params
       0x00, 0x01, 0x03,              // role = PubSub
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  parser.process_data(&mut &setup[..], false);
   while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "PATH parameter appears twice in CLIENT_SETUP");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1095,20 +1101,20 @@ fn test_SetupPathAppearsTwice() -> Result<()> {
 #[test]
 fn test_SetupPathOverWebtrans() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  MoqtParser parser(K_WEB_TRANS, tester.visitor);
-  char setup[] = {
+  let mut parser = MessageParser::new(K_WEB_TRANS);
+  let setup = vec![
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x02,                          // 2 params
       0x00, 0x01, 0x03,              // role = PubSub
       0x01, 0x03, 0x66, 0x6f, 0x6f,  // path = "foo"
   };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  parser.process_data(&mut &setup[..], false);
   while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "WebTransport connection is using PATH parameter in SETUP");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1119,18 +1125,18 @@ fn test_SetupPathOverWebtrans() -> Result<()> {
 fn test_SetupPathMissing() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
   let mut parser = MessageParser::new(K_RAW_QUIC);
-  char setup[] = {
+  let setup = vec![
       0x40, 0x40, 0x02, 0x01, 0x02,  // versions = 1, 2
       0x01,                          // 1 param
       0x00, 0x01, 0x03,              // role = PubSub
   };
-  parser.process_data(absl::string_view(setup, sizeof(setup)), false);
+  parser.process_data(&mut &setup[..], false);
   while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "PATH SETUP parameter missing from Client message over QUIC");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1140,7 +1146,7 @@ fn test_SetupPathMissing() -> Result<()> {
 #[test]
 fn test_SubscribeAuthorizationInfoTwice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  MoqtParser parser(K_WEB_TRANS, tester.visitor);
+  let mut parser = MessageParser::new(K_WEB_TRANS);
   char subscribe[] = {
       0x03, 0x01, 0x02, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
       0x04, 0x61, 0x62, 0x63, 0x64,              // track_name = "abcd"
@@ -1155,7 +1161,7 @@ fn test_SubscribeAuthorizationInfoTwice() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1165,7 +1171,7 @@ fn test_SubscribeAuthorizationInfoTwice() -> Result<()> {
 #[test]
 fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  MoqtParser parser(K_WEB_TRANS, tester.visitor);
+  let mut parser = MessageParser::new(K_WEB_TRANS);
   char subscribe_update[] = {
       0x02, 0x02, 0x03, 0x01, 0x05, 0x06,  // start and end sequences
       0x02,                                // 2 parameters
@@ -1179,7 +1185,7 @@ fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1189,7 +1195,7 @@ fn test_SubscribeUpdateAuthorizationInfoTwice() -> Result<()> {
 #[test]
 fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  MoqtParser parser(K_WEB_TRANS, tester.visitor);
+  let mut parser = MessageParser::new(K_WEB_TRANS);
   char announce[] = {
       0x06, 0x03, 0x66, 0x6f, 0x6f,  // track_namespace = "foo"
       0x02,                          // 2 params
@@ -1202,7 +1208,7 @@ fn test_AnnounceAuthorizationInfoTwice() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1222,7 +1228,7 @@ fn test_FinMidPayload() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "Received FIN mid-payload");
+  assert_eq!(tester.visitor.parsing_error, "Received FIN mid-payload");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
@@ -1245,7 +1251,7 @@ fn test_PartialPayloadThenFin() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 1);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "End of stream before complete OBJECT PAYLOAD");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1265,7 +1271,7 @@ fn test_DataAfterFin() -> Result<()> {
         tester.visitor.handle_event(event);
     }
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "Data after end of stream");
+  assert_eq!(tester.visitor.parsing_error, "Data after end of stream");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
@@ -1285,7 +1291,7 @@ fn test_NonNormalObjectHasPayload() -> Result<()> {
         tester.visitor.handle_event(event);
     }
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "Object with non-normal status has payload");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
@@ -1306,7 +1312,7 @@ fn test_InvalidObjectStatus() -> Result<()> {
         tester.visitor.handle_event(event);
     }
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "Invalid object status");
+  assert_eq!(tester.visitor.parsing_error, "Invalid object status");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
 
     Ok(())
@@ -1332,7 +1338,7 @@ fn test_Setup2KB() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "Cannot parse non-OBJECT messages > 2KB");
+  assert_eq!(tester.visitor.parsing_error, "Cannot parse non-OBJECT messages > 2KB");
   assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::InternalError);
 
     Ok(())
@@ -1351,7 +1357,7 @@ fn test_UnknownMessageType() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "Unknown message type");
+  assert_eq!(tester.visitor.parsing_error, "Unknown message type");
 
     Ok(())
 }
@@ -1528,7 +1534,7 @@ fn test_AbsoluteRangeEndGroupTooLow() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "End group is less than start group");
+  assert_eq!(tester.visitor.parsing_error, "End group is less than start group");
 
     Ok(())
 }
@@ -1591,7 +1597,7 @@ fn test_SubscribeUpdateEndGroupTooLow() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "End group is less than start group");
+  assert_eq!(tester.visitor.parsing_error, "End group is less than start group");
 
     Ok(())
 }
@@ -1618,7 +1624,7 @@ fn test_AbsoluteRangeEndObjectTooLow() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "End object comes before start object");
+  assert_eq!(tester.visitor.parsing_error, "End object comes before start object");
 
     Ok(())
 }
@@ -1639,7 +1645,7 @@ fn test_SubscribeUpdateEndObjectTooLow() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error, "End object comes before start object");
+  assert_eq!(tester.visitor.parsing_error, "End object comes before start object");
 
     Ok(())
 }
@@ -1660,7 +1666,7 @@ fn test_SubscribeUpdateNoEndGroup() -> Result<()> {
     }
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "SUBSCRIBE_UPDATE has end_object but no end_group");
 
     Ok(())
@@ -1779,7 +1785,7 @@ fn test_SubscribeOkInvalidContentExists() -> Result<()> {
   parser.process_data(subscribe_ok.PacketSample(), false);
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "SUBSCRIBE_OK ContentExists has invalid value");
 
     Ok(())
@@ -1794,7 +1800,7 @@ fn test_SubscribeDoneInvalidContentExists() -> Result<()> {
   parser.process_data(subscribe_done.PacketSample(), false);
   assert_eq!(tester.visitor.messages_received, 0);
   assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(*tester.visitor.parsing_error,
+  assert_eq!(tester.visitor.parsing_error,
             "SUBSCRIBE_DONE ContentExists has invalid value");
 
     Ok(())
