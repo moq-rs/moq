@@ -539,36 +539,114 @@ fn test_one_byte_at_a_time_longer_varints(params: (MessageType, bool)) -> Result
 
     Ok(())
 }
+
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_early_fin(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
+
+    let message = tester.make_message();
+    let total_message_size = message.packet_sample().len();
+    let mut first_data_size = total_message_size / 2;
+    if tester.message_type == MessageType::StreamHeaderTrack {
+        // The boundary happens to fall right after the stream header, so move it.
+        first_data_size += 1;
+    }
+    tester
+        .parser
+        .process_data(&mut &message.packet_sample()[..first_data_size], true);
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(0, tester.visitor.messages_received);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("FIN after incomplete message".to_string())
+    );
+    Ok(())
+}
+
+#[rstest(
+    params => [
+    (MessageType::ObjectStream, true), // ObjectDatagram is a unique set of tests.
+    (MessageType::StreamHeaderTrack, true),
+    (MessageType::StreamHeaderGroup, true),
+    (MessageType::Subscribe, true),
+    (MessageType::SubscribeOk, true),
+    (MessageType::SubscribeError, true),
+    (MessageType::UnSubscribe, true),
+    (MessageType::SubscribeDone, true),
+    (MessageType::SubscribeUpdate, true),
+    (MessageType::Announce, true),
+    (MessageType::AnnounceOk, true),
+    (MessageType::AnnounceError, true),
+    (MessageType::AnnounceCancel, true),
+    (MessageType::UnAnnounce, true),
+    (MessageType::TrackStatusRequest, true),
+    (MessageType::TrackStatus, true),
+    (MessageType::ClientSetup, true),
+    (MessageType::ClientSetup, false),
+    (MessageType::ServerSetup, true),
+    (MessageType::GoAway, true),
+    ]
+)]
+fn test_separate_early_fin(params: (MessageType, bool)) -> Result<()> {
+    let mut tester = TestParser::new(&TestParserParams::new(params.0, params.1));
+
+    let message = tester.make_message();
+    let total_message_size = message.packet_sample().len();
+    let mut first_data_size = total_message_size / 2;
+    if tester.message_type == MessageType::StreamHeaderTrack {
+        // The boundary happens to fall right after the stream header, so move it.
+        first_data_size += 1;
+    }
+    tester
+        .parser
+        .process_data(&mut &message.packet_sample()[..first_data_size], false);
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    let empty: Vec<u8> = vec![];
+    tester.parser.process_data(&mut &empty[..], true);
+    while let Some(event) = tester.parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("End of stream before complete message".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+    Ok(())
+}
 /*
-TEST_P(MoqtParserTest, EarlyFin) {
-  std::unique_ptr<TestMessageBase> message = MakeMessage(message_type_);
-  size_t first_data_size = message->total_message_size() / 2;
-  if (message_type_ == MoqtMessageType::kStreamHeaderTrack) {
-    // The boundary happens to fall right after the stream header, so move it.
-    ++first_data_size;
-  }
-  parser_.ProcessData(message->PacketSample().substr(0, first_data_size), true);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "FIN after incomplete message");
-}
-
-TEST_P(MoqtParserTest, SeparateEarlyFin) {
-  std::unique_ptr<TestMessageBase> message = MakeMessage(message_type_);
-  size_t first_data_size = message->total_message_size() / 2;
-  if (message_type_ == MoqtMessageType::kStreamHeaderTrack) {
-    // The boundary happens to fall right after the stream header, so move it.
-    ++first_data_size;
-  }
-  parser_.ProcessData(message->PacketSample().substr(0, first_data_size),
-                      false);
-  parser_.ProcessData(absl::string_view(), true);
-  assert_eq!(tester.visitor.messages_received_, 0);
-  assert!(tester.visitor.parsing_error_.has_value());
-  assert_eq!(*tester.visitor.parsing_error_, "End of stream before complete message");
-  assert_eq!(tester.visitor.parsing_error_code_, MoqtError::kProtocolViolation);
-}
-
 // Tests for message-specific error cases, and behaviors for a single message
 // type.
 class MoqtMessageSpecificTest : public quic::test::QuicTest {

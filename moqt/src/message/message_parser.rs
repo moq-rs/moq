@@ -5,7 +5,9 @@ use crate::{Error, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::collections::VecDeque;
 
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ParserErrorCode {
+    #[default]
     NoError = 0x0,
     InternalError = 0x1,
     Unauthorized = 0x2,
