@@ -1470,35 +1470,42 @@ fn test_latest_group() -> Result<()> {
 
     Ok(())
 }
-/*
+
 #[test]
-fn test_LatestObject() -> Result<()> {
+fn test_latest_object() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char subscribe[] = {
-      0x03, 0x01, 0x02,              // id and alias
-      0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
-      0x04, 0x61, 0x62, 0x63, 0x64,  // track_name = "abcd"
-      0x02,                          // filter_type = kLatestObject
-      0x01,                          // 1 parameter
-      0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
-  };
-  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
-  while let Some(event) = parser.poll_event() {
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let subscribe = vec![
+        0x03, 0x01, 0x02, // id and alias
+        0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+        0x02, // filter_type = kLatestObject
+        0x01, // 1 parameter
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe[..], false);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
-  assert_eq!(tester.visitor.messages_received, 1);
-  assert!(!tester.visitor.parsing_error.is_some());
-  MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
-  assert!(!message.start_group.is_some());
-  assert!(!message.start_object.is_some());
-  assert!(!message.end_group.is_some());
-  assert!(!message.end_object.is_some());
+    assert_eq!(tester.visitor.messages_received, 1);
+    assert!(!tester.visitor.parsing_error.is_some());
+    let message = if let Some(MessageStructuredData::Control(ControlMessage::Subscribe(message))) =
+        tester.visitor.last_message
+    {
+        message
+    } else {
+        assert!(false);
+        return Err(ErrInvalidMessageType(0));
+    };
+    if let FilterType::LatestObject = message.filter_type {
+        assert!(true);
+    } else {
+        assert!(false);
+    }
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_AbsoluteStart() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
