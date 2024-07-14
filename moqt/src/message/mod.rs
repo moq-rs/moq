@@ -262,19 +262,18 @@ pub enum Version {
     Draft02 = 0xff000002,
     Draft03 = 0xff000003,
     Draft04 = 0xff000004,
+    Unsupported(u32),
 }
 
-impl TryFrom<u64> for Version {
-    type Error = Error;
-
-    fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
+impl From<u64> for Version {
+    fn from(value: u64) -> Self {
         match value {
-            0xff000000 => Ok(Version::Draft00),
-            0xff000001 => Ok(Version::Draft01),
-            0xff000002 => Ok(Version::Draft02),
-            0xff000003 => Ok(Version::Draft03),
-            0xff000004 => Ok(Version::Draft04),
-            _ => Err(Error::ErrUnsupportedVersion(value)),
+            0xff000000 => Version::Draft00,
+            0xff000001 => Version::Draft01,
+            0xff000002 => Version::Draft02,
+            0xff000003 => Version::Draft03,
+            0xff000004 => Version::Draft04,
+            _ => Version::Unsupported(value as u32),
         }
     }
 }
@@ -282,14 +281,22 @@ impl TryFrom<u64> for Version {
 impl Deserializer for Version {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let (v, vl) = u64::deserialize(r)?;
-        let version = v.try_into()?;
+        let version = v.into();
         Ok((version, vl))
     }
 }
 
 impl Serializer for Version {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        (*self as u64).serialize(w)
+        let value: u64 = match *self {
+            Version::Draft00 => 0xff000000,
+            Version::Draft01 => 0xff000001,
+            Version::Draft02 => 0xff000002,
+            Version::Draft03 => 0xff000003,
+            Version::Draft04 => 0xff000004,
+            Version::Unsupported(value) => value as u64,
+        };
+        value.serialize(w)
     }
 }
 

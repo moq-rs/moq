@@ -150,13 +150,29 @@ impl TestMessage {
 
 pub(crate) fn create_test_message(
     message_type: MessageType,
-    _uses_web_transport: bool,
+    uses_web_transport: bool,
 ) -> Box<dyn TestMessageBase> {
     match message_type {
         MessageType::ObjectStream => Box::new(TestObjectStreamMessage::new()),
         MessageType::ObjectDatagram => Box::new(TestObjectDatagramMessage::new()),
+        MessageType::SubscribeUpdate => Box::new(TestSubscribeUpdateMessage::new()),
+        MessageType::Subscribe => Box::new(TestSubscribeMessage::new()),
+        MessageType::SubscribeOk => Box::new(TestSubscribeOkMessage::new()),
+        MessageType::SubscribeError => Box::new(TestSubscribeErrorMessage::new()),
+        MessageType::Announce => Box::new(TestAnnounceMessage::new()),
+        MessageType::AnnounceOk => Box::new(TestAnnounceOkMessage::new()),
+        MessageType::AnnounceError => Box::new(TestAnnounceErrorMessage::new()),
+        MessageType::UnAnnounce => Box::new(TestUnAnnounceMessage::new()),
+        MessageType::UnSubscribe => Box::new(TestUnSubscribeMessage::new()),
+        MessageType::SubscribeDone => Box::new(TestSubscribeDoneMessage::new()),
+        MessageType::AnnounceCancel => Box::new(TestAnnounceCancelMessage::new()),
+        MessageType::TrackStatusRequest => Box::new(TestTrackStatusRequestMessage::new()),
+        MessageType::TrackStatus => Box::new(TestTrackStatusMessage::new()),
+        MessageType::GoAway => Box::new(TestGoAwayMessage::new()),
+        MessageType::ClientSetup => Box::new(TestClientSetupMessage::new(uses_web_transport)),
+        MessageType::ServerSetup => Box::new(TestServerSetupMessage::new()),
         MessageType::StreamHeaderTrack => Box::new(TestStreamHeaderTrackMessage::new()),
-        _ => Box::new(TestStreamHeaderGroupMessage::new()),
+        MessageType::StreamHeaderGroup => Box::new(TestStreamHeaderGroupMessage::new()),
     }
 }
 
@@ -570,22 +586,20 @@ impl TestClientSetupMessage {
     fn new(webtrans: bool) -> Self {
         let mut base = TestMessage::new(MessageType::ClientSetup);
         let mut client_setup = ClientSetup {
-            supported_versions: vec![Version::Draft01, Version::Draft02],
+            supported_versions: vec![Version::Unsupported(0x01), Version::Unsupported(0x02)],
             role: Role::PubSub,
             path: Some("foo".to_string()),
         };
         let mut raw_packet = vec![
             0x40, 0x40, // type
-            0x02, // versions
-            192, 0, 0, 0, 255, 0, 0, 1, // Draft01
-            192, 0, 0, 0, 255, 0, 0, 2,    // Draft02
+            0x02, 0x01, 0x02, // versions
             0x02, // 2 parameters
             0x00, 0x01, 0x03, // role = PubSub
             0x01, 0x03, 0x66, 0x6f, 0x6f, // path = "foo"
         ];
         if webtrans {
             client_setup.path = None;
-            raw_packet[19] = 0x01; // only one parameter
+            raw_packet[5] = 0x01; // only one parameter
             base.set_wire_image(&raw_packet, raw_packet.len() - 5);
         } else {
             base.set_wire_image(&raw_packet, raw_packet.len());
@@ -668,13 +682,12 @@ impl TestServerSetupMessage {
     fn new() -> Self {
         let mut base = TestMessage::new(MessageType::ServerSetup);
         let server_setup = ServerSetup {
-            supported_version: Version::Draft01,
+            supported_version: Version::Unsupported(0x01),
             role: Role::PubSub,
         };
         let raw_packet = vec![
             0x40, 0x41, // type
-            192, 0, 0, 0, 255, 0, 0, 1,    // version Draft01
-            0x01, // one param
+            0x01, 0x01, // version, one param
             0x00, 0x01, 0x03, // role = PubSub
         ];
         base.set_wire_image(&raw_packet, raw_packet.len());

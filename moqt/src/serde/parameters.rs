@@ -52,11 +52,10 @@ impl Deserializer for Parameters {
             {
                 let mut size_buf = vec![];
                 let size_buf_len = size.serialize(&mut size_buf)?;
-                assert_eq!(size_buf_len, sl);
 
-                let mut buf = vec![0; size + sl];
-                buf[..sl].copy_from_slice(&size_buf);
-                r.copy_to_slice(&mut buf[sl..]);
+                let mut buf = vec![0; size + size_buf_len];
+                buf[..size_buf_len].copy_from_slice(&size_buf);
+                r.copy_to_slice(&mut buf[size_buf_len..]);
                 buf
             } else {
                 let mut buf = vec![0; size];
