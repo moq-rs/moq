@@ -1505,69 +1505,87 @@ fn test_latest_object() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_absolute_start() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let subscribe = vec![
+        0x03, 0x01, 0x02, // id and alias
+        0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+        0x03, // filter_type = kAbsoluteStart
+        0x04, // start_group = 4
+        0x01, // start_object = 1
+        0x01, // 1 parameter
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    assert!(!tester.visitor.parsing_error.is_some());
+    let message = if let Some(MessageStructuredData::Control(ControlMessage::Subscribe(message))) =
+        tester.visitor.last_message
+    {
+        message
+    } else {
+        assert!(false);
+        return Err(ErrInvalidMessageType(0));
+    };
+    if let FilterType::AbsoluteStart(start) = message.filter_type {
+        assert_eq!(start.group_id, 4);
+        assert_eq!(start.object_id, 1);
+    } else {
+        assert!(false);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_absolute_range_explicit_end_object() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let subscribe = vec![
+        0x03, 0x01, 0x02, // id and alias
+        0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+        0x04, 0x61, 0x62, 0x63, 0x64, // track_name = "abcd"
+        0x04, // filter_type = kAbsoluteStart
+        0x04, // start_group = 4
+        0x01, // start_object = 1
+        0x07, // end_group = 7
+        0x03, // end_object = 2
+        0x01, // 1 parameter
+        0x02, 0x03, 0x62, 0x61, 0x72, // authorization_info = "bar"
+    ];
+    parser.process_data(&mut &subscribe[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    assert!(!tester.visitor.parsing_error.is_some());
+    let message = if let Some(MessageStructuredData::Control(ControlMessage::Subscribe(message))) =
+        tester.visitor.last_message
+    {
+        message
+    } else {
+        assert!(false);
+        return Err(ErrInvalidMessageType(0));
+    };
+    if let FilterType::AbsoluteRange(start, end) = message.filter_type {
+        assert_eq!(start.group_id, 4);
+        assert_eq!(start.object_id, 1);
+        assert_eq!(end.group_id, 7);
+        assert_eq!(end.object_id, 2);
+    } else {
+        assert!(false);
+    }
+
+    Ok(())
+}
 /*
-#[test]
-fn test_AbsoluteStart() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char subscribe[] = {
-      0x03, 0x01, 0x02,              // id and alias
-      0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
-      0x04, 0x61, 0x62, 0x63, 0x64,  // track_name = "abcd"
-      0x03,                          // filter_type = kAbsoluteStart
-      0x04,                          // start_group = 4
-      0x01,                          // start_object = 1
-      0x01,                          // 1 parameter
-      0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
-  };
-  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 1);
-  assert!(!tester.visitor.parsing_error.is_some());
-  MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
-  assert_eq!(message.start_group.value(), 4);
-  assert_eq!(message.start_object.value(), 1);
-  assert!(!message.end_group.is_some());
-  assert!(!message.end_object.is_some());
-
-    Ok(())
-}
-
-#[test]
-fn test_AbsoluteRangeExplicitEndObject() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char subscribe[] = {
-      0x03, 0x01, 0x02,              // id and alias
-      0x03, 0x66, 0x6f, 0x6f,        // track_namespace = "foo"
-      0x04, 0x61, 0x62, 0x63, 0x64,  // track_name = "abcd"
-      0x04,                          // filter_type = kAbsoluteStart
-      0x04,                          // start_group = 4
-      0x01,                          // start_object = 1
-      0x07,                          // end_group = 7
-      0x03,                          // end_object = 2
-      0x01,                          // 1 parameter
-      0x02, 0x03, 0x62, 0x61, 0x72,  // authorization_info = "bar"
-  };
-  parser.process_data(absl::string_view(subscribe, sizeof(subscribe)), false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 1);
-  assert!(!tester.visitor.parsing_error.is_some());
-  MoqtSubscribe message =
-      std::get<MoqtSubscribe>(tester.visitor.last_message.value());
-  assert_eq!(message.start_group.value(), 4);
-  assert_eq!(message.start_object.value(), 1);
-  assert_eq!(message.end_group.value(), 7);
-  assert_eq!(message.end_object.value(), 2);
-
-    Ok(())
-}
-
 #[test]
 fn test_AbsoluteRangeWholeEndGroup() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
