@@ -37,7 +37,10 @@ impl Deserializer for Parameters {
         for _ in 0..count {
             let (kind, kl) = u64::deserialize(r)?;
             if params.contains_key(&kind) {
-                return Err(Error::ErrDuplicateParameter);
+                return Err(Error::ErrProtocolViolation(format!(
+                    "parameter {} appears twice",
+                    kind
+                )));
             }
 
             let (size, sl) = usize::deserialize(r)?;
