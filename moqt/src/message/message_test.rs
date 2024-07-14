@@ -122,9 +122,10 @@ impl TestMessage {
         let mut writer = vec![];
         let mut i = 0;
         while reader.has_remaining() {
-            if i >= varints.len() || varints[i] == b'-' {
+            if i >= varints.len() || varints[{
                 i += 1;
-
+                i - 1
+            }] == b'-' {
                 writer.put_u8(reader.get_u8());
                 continue;
             }
