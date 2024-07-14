@@ -1797,53 +1797,80 @@ fn test_subscribe_update_no_end_group() -> Result<()> {
 
     Ok(())
 }
-/*
+
+static TEST_MESSAGE_TYPES: &[MessageType] = &[
+    MessageType::ObjectStream, // kObjectDatagram is a unique set of tests.
+    MessageType::Subscribe,
+    MessageType::SubscribeOk,
+    MessageType::SubscribeError,
+    MessageType::SubscribeUpdate,
+    MessageType::UnSubscribe,
+    MessageType::SubscribeDone,
+    MessageType::AnnounceCancel,
+    MessageType::TrackStatusRequest,
+    MessageType::TrackStatus,
+    MessageType::Announce,
+    MessageType::AnnounceOk,
+    MessageType::AnnounceError,
+    MessageType::UnAnnounce,
+    MessageType::ClientSetup,
+    MessageType::ServerSetup,
+    MessageType::StreamHeaderTrack,
+    MessageType::StreamHeaderGroup,
+    MessageType::GoAway,
+];
+
 #[test]
-fn test_AllMessagesTogether() -> Result<()> {
+fn test_all_messages_together() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
-  char buffer[5000];
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  size_t write = 0;
-  size_t read = 0;
-  int fully_received = 0;
-  std::unique_ptr<TestMessageBase> prev_message = nullptr;
-  for (MoqtMessageType type : message_types) {
-    // Each iteration, process from the halfway point of one message to the
-    // halfway point of the next.
-    if (IsObjectMessage(type)) {
-      continue;  // Objects cannot share a stream with other messages.
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let mut buffer = vec![0u8; 5000];
+    let mut write = 0;
+    let mut read = 0;
+    let mut fully_received = 0;
+    let mut prev_message: Option<Box<dyn TestMessageBase>> = None;
+    for &message_type in TEST_MESSAGE_TYPES {
+        // Each iteration, process from the halfway point of one message to the
+        // halfway point of the next.
+        if message_type.is_object_message() {
+            continue; // Objects cannot share a stream with other messages.
+        }
+        let message = create_test_message(message_type, K_RAW_QUIC);
+        let sample = message.packet_sample();
+        let total_message_size = sample.len();
+        buffer[write..write + total_message_size].copy_from_slice(sample);
+        let new_read = write + total_message_size / 2;
+        parser.process_data(&mut &buffer[read..new_read], false);
+        while let Some(event) = parser.poll_event() {
+            tester.visitor.handle_event(event);
+        }
+        assert_eq!(tester.visitor.messages_received, fully_received);
+        if let Some(prev_message) = prev_message.as_ref() {
+            let last_message = tester.visitor.last_message.as_ref().unwrap();
+            assert!(prev_message.equal_field_values(last_message));
+        }
+        fully_received += 1;
+        read = new_read;
+        write += total_message_size;
+        prev_message = Some(message);
     }
-    std::unique_ptr<TestMessageBase> message =
-        CreateTestMessage(type, K_RAW_QUIC);
-    memcpy(buffer + write, message.packet_sample().data(),
-           message->total_message_size());
-    size_t new_read = write + message->total_message_size() / 2;
-    parser.process_data(absl::string_view(buffer + read, new_read - read),
-                       false);
-  while let Some(event) = parser.poll_event() {
+    // Deliver the rest
+    parser.process_data(&mut &buffer[read..write], true);
+    while let Some(event) = parser.poll_event() {
         tester.visitor.handle_event(event);
     }
     assert_eq!(tester.visitor.messages_received, fully_received);
-    if (prev_message != nullptr) {
-      assert!(prev_message.equal_field_values(*tester.visitor.last_message));
+    if let Some(prev_message) = prev_message.as_ref() {
+        let last_message = tester.visitor.last_message.as_ref().unwrap();
+        assert!(prev_message.equal_field_values(last_message));
+    } else {
+        assert!(false);
     }
-    fully_received++;
-    read = new_read;
-    write += message->total_message_size();
-    prev_message = std::move(message);
-  }
-  // Deliver the rest
-  parser.process_data(absl::string_view(buffer + read, write - read), true);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, fully_received);
-  assert!(prev_message.equal_field_values(*tester.visitor.last_message));
-  assert!(!tester.visitor.parsing_error.is_some());
+    assert!(!tester.visitor.parsing_error.is_some());
 
     Ok(())
 }
-
+/*
 #[test]
 fn test_DatagramSuccessful() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
