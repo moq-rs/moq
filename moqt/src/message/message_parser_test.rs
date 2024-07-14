@@ -5,8 +5,8 @@ use crate::message::message_test::{
     TestStreamMiddlerTrackMessage,
 };
 use crate::message::object::ObjectHeader;
-use crate::message::{ControlMessage, MessageType};
-use crate::Result;
+use crate::message::{ControlMessage, MessageType, MAX_MESSSAGE_HEADER_SIZE};
+use crate::{Result, Serializer};
 use bytes::Bytes;
 use rstest::rstest;
 use std::fmt::{Display, Formatter};
@@ -1279,117 +1279,142 @@ fn test_fin_mid_payload() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_partial_payload_then_fin() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let message = TestStreamHeaderTrackMessage::new();
+    parser.process_data(
+        &mut &message.packet_sample()[..message.total_message_size() - 1],
+        false,
+    );
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    parser.process_data(&mut Bytes::new(), true);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 1);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("End of stream before complete OBJECT PAYLOAD".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_data_after_fin() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    parser.process_data(&mut Bytes::new(), true); // Find FIN
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    parser.process_data(&mut Bytes::from_static(b"foo"), false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Data after end of stream".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_non_normal_object_has_payload() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let object_stream = vec![
+        0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x02, // varints
+        0x66, 0x6f, 0x6f, // payload = "foo"
+    ];
+    parser.process_data(&mut &object_stream[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Object with non-normal status has payload".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_invalid_object_status() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let object_stream = vec![
+        0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x06, // varints
+        0x66, 0x6f, 0x6f, // payload = "foo"
+    ];
+    parser.process_data(&mut &object_stream[..], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Invalid object status".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::ProtocolViolation
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_setup2kb() -> Result<()> {
+    let mut tester = TestMessageSpecific::new();
+    let mut parser = MessageParser::new(K_RAW_QUIC);
+    let mut writer = vec![];
+    (MessageType::ServerSetup as u64).serialize(&mut writer)?;
+    0x1u64.serialize(&mut writer)?; // version
+    0x1u64.serialize(&mut writer)?; // num_params
+    0xbeefu64.serialize(&mut writer)?; // unknown param
+    MAX_MESSSAGE_HEADER_SIZE.serialize(&mut writer)?; // very long parameter
+    writer.append(&mut vec![0x04u8; MAX_MESSSAGE_HEADER_SIZE]);
+
+    // Send incomplete message
+    parser.process_data(&mut &writer[..writer.len() - 1], false);
+    while let Some(event) = parser.poll_event() {
+        tester.visitor.handle_event(event);
+    }
+    assert_eq!(tester.visitor.messages_received, 0);
+    assert!(tester.visitor.parsing_error.is_some());
+    assert_eq!(
+        tester.visitor.parsing_error,
+        Some("Cannot parse non-OBJECT messages > 2KB".to_string())
+    );
+    assert_eq!(
+        tester.visitor.parsing_error_code,
+        ParserErrorCode::InternalError
+    );
+
+    Ok(())
+}
 /*
-#[test]
-fn test_PartialPayloadThenFin() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  auto message = std::make_unique<StreamHeaderTrackMessage>();
-  parser.process_data(
-      message.packet_sample()(0, message->total_message_size() - 1),
-      false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  parser.process_data(absl::string_view(), true);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 1);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "End of stream before complete OBJECT PAYLOAD");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_DataAfterFin() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  parser.process_data(absl::string_view(), true);  // Find FIN
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  parser.process_data("foo", false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "Data after end of stream");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_NonNormalObjectHasPayload() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char object_stream[] = {
-      0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x02,  // varints
-      0x66, 0x6f, 0x6f,                          // payload = "foo"
-  };
-  parser.process_data(absl::string_view(object_stream, sizeof(object_stream)),
-                     false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error,
-            "Object with non-normal status has payload");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_InvalidObjectStatus() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char object_stream[] = {
-      0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x06,  // varints
-      0x66, 0x6f, 0x6f,                          // payload = "foo"
-  };
-  parser.process_data(absl::string_view(object_stream, sizeof(object_stream)),
-                     false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "Invalid object status");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::ProtocolViolation);
-
-    Ok(())
-}
-
-#[test]
-fn test_Setup2KB() -> Result<()> {
-    let mut tester = TestMessageSpecific::new();
-  let mut parser = MessageParser::new(K_RAW_QUIC);
-  char big_message[2 * kMaxMessageHeaderSize];
-  quic::QuicDataWriter writer(sizeof(big_message), big_message);
-  writer.WriteVarInt62(static_cast<uint64_t>(MoqtMessageType::kServerSetup));
-  writer.WriteVarInt62(0x1);                    // version
-  writer.WriteVarInt62(0x1);                    // num_params
-  writer.WriteVarInt62(0xbeef);                 // unknown param
-  writer.WriteVarInt62(kMaxMessageHeaderSize);  // very long parameter
-  writer.WriteRepeatedByte(0x04, kMaxMessageHeaderSize);
-  // Send incomplete message
-  parser.process_data(absl::string_view(big_message, writer.length() - 1),
-                     false);
-  while let Some(event) = parser.poll_event() {
-        tester.visitor.handle_event(event);
-    }
-  assert_eq!(tester.visitor.messages_received, 0);
-  assert!(tester.visitor.parsing_error.is_some());
-  assert_eq!(tester.visitor.parsing_error, "Cannot parse non-OBJECT messages > 2KB");
-  assert_eq!(tester.visitor.parsing_error_code, ParserErrorCode::InternalError);
-
-    Ok(())
-}
-
 #[test]
 fn test_UnknownMessageType() -> Result<()> {
     let mut tester = TestMessageSpecific::new();
