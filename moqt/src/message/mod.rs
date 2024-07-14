@@ -229,7 +229,12 @@ impl Deserializer for FilterType {
             }
             0x4 => {
                 let (start, sl) = FullSequence::deserialize(r)?;
-                let (end, el) = FullSequence::deserialize(r)?;
+                let (mut end, el) = FullSequence::deserialize(r)?;
+                if end.object_id == 0 {
+                    end.object_id = u64::MAX;
+                } else {
+                    end.object_id -= 1;
+                }
                 Ok((FilterType::AbsoluteRange(start, end), vl + sl + el))
             }
             _ => Err(Error::ErrInvalidFilterType(v)),
@@ -239,7 +244,7 @@ impl Deserializer for FilterType {
 
 impl Serializer for FilterType {
     fn serialize<W: BufMut>(&self, w: &mut W) -> Result<usize> {
-        match self {
+        match *self {
             FilterType::LatestGroup => 0x1u64.serialize(w),
             FilterType::LatestObject => 0x2u64.serialize(w),
             FilterType::AbsoluteStart(start) => {
@@ -247,9 +252,14 @@ impl Serializer for FilterType {
                 l += start.serialize(w)?;
                 Ok(l)
             }
-            FilterType::AbsoluteRange(start, end) => {
+            FilterType::AbsoluteRange(start, mut end) => {
                 let mut l = 0x4u64.serialize(w)?;
                 l += start.serialize(w)?;
+                if end.object_id == u64::MAX {
+                    end.object_id = 0;
+                } else {
+                    end.object_id += 1;
+                }
                 l += end.serialize(w)?;
                 Ok(l)
             }
