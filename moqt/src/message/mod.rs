@@ -235,7 +235,19 @@ impl Deserializer for FilterType {
                 } else {
                     end.object_id -= 1;
                 }
-                Ok((FilterType::AbsoluteRange(start, end), vl + sl + el))
+                if end.group_id < start.group_id {
+                    Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "End group is less than start group".to_string(),
+                    ))
+                } else if end.group_id == start.group_id && end.object_id < start.object_id {
+                    Err(Error::ErrParseError(
+                        ParserErrorCode::ProtocolViolation,
+                        "End object comes before start object".to_string(),
+                    ))
+                } else {
+                    Ok((FilterType::AbsoluteRange(start, end), vl + sl + el))
+                }
             }
             _ => Err(Error::ErrInvalidFilterType(v)),
         }

@@ -19,8 +19,38 @@ impl Deserializer for SubscribeUpdate {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let (subscribe_id, sil) = u64::deserialize(r)?;
 
-        let (start_group_object, sgol) = FullSequence::deserialize(r)?;
-        let (end_group_object, egol) = FullSequence::deserialize(r)?;
+        let (start, sgol) = FullSequence::deserialize(r)?;
+        let (end, egol) = FullSequence::deserialize(r)?;
+
+        let end_group_object = if end.group_id == 0 {
+            None
+        } else {
+            let end_group_object = if end.object_id == 0 {
+                FullSequence {
+                    group_id: end.group_id - 1,
+                    object_id: u64::MAX,
+                }
+            } else {
+                FullSequence {
+                    group_id: end.group_id - 1,
+                    object_id: end.object_id - 1,
+                }
+            };
+
+            if end.group_id < start.group_id {
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    "End group is less than start group".to_string(),
+                ));
+            } else if end.group_id == start.group_id && end.object_id < start.object_id {
+                return Err(Error::ErrParseError(
+                    ParserErrorCode::ProtocolViolation,
+                    "End object comes before start object".to_string(),
+                ));
+            }
+
+            Some(end_group_object)
+        };
 
         let mut authorization_info: Option<String> = None;
         let (num_params, mut pl) = u64::deserialize(r)?;
@@ -55,20 +85,8 @@ impl Deserializer for SubscribeUpdate {
             Self {
                 subscribe_id,
 
-                start_group_object,
-                end_group_object: if end_group_object.group_id == 0 {
-                    None
-                } else if end_group_object.object_id == 0 {
-                    Some(FullSequence {
-                        group_id: end_group_object.group_id - 1,
-                        object_id: u64::MAX,
-                    })
-                } else {
-                    Some(FullSequence {
-                        group_id: end_group_object.group_id - 1,
-                        object_id: end_group_object.object_id - 1,
-                    })
-                },
+                start_group_object: start,
+                end_group_object,
 
                 authorization_info,
             },
