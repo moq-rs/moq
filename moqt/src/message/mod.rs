@@ -40,6 +40,8 @@ pub mod unannounce;
 pub mod unsubscribe;
 
 #[cfg(test)]
+mod message_framer_test;
+#[cfg(test)]
 mod message_parser_test;
 #[cfg(test)]
 mod message_test;

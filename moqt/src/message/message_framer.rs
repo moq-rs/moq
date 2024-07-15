@@ -136,6 +136,20 @@ impl MessageFramer {
         }
     }
 
+    pub(crate) fn serialize_object<W: BufMut>(
+        object_header: &ObjectHeader,
+        is_first_in_stream: bool,
+        payload: Bytes,
+        w: &mut W,
+    ) -> Result<usize> {
+        let mut adjusted_object_header = *object_header;
+        adjusted_object_header.object_payload_length = Some(payload.len() as u64);
+        let mut tl =
+            MessageFramer::serialize_object_header(&adjusted_object_header, is_first_in_stream, w)?;
+        tl += payload.serialize(w)?;
+        Ok(tl)
+    }
+
     pub fn serialize_object_datagram<W: BufMut>(
         object_header: &ObjectHeader,
         payload: Bytes,
