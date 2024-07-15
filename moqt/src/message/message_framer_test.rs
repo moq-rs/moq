@@ -1,7 +1,8 @@
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_test::{
-    create_test_message, MessageStructuredData, TestMessageBase, TestStreamHeaderGroupMessage,
-    TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage,
+    create_test_message, MessageStructuredData, TestMessageBase, TestObjectDatagramMessage,
+    TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage,
+    TestStreamMiddlerTrackMessage,
 };
 use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
 use crate::message::MessageType;
@@ -228,28 +229,29 @@ fn test_bad_object_input() -> Result<()> {
     buffer.clear();
     Ok(())
 }
-/*
+
 #[test]
-fn test_Datagram() -> Result<()> {
-  auto datagram = std::make_unique<ObjectDatagramMessage>();
-  MoqtObject object = {
-      /*subscribe_id=*/3,
-      /*track_alias=*/4,
-      /*group_id=*/5,
-      /*object_id=*/6,
-      /*object_send_order=*/7,
-      /*object_status=*/MoqtObjectStatus::kNormal,
-      /*forwarding_preference=*/MoqtForwardingPreference::kObject,
-      /*payload_length=*/std::nullopt,
-  };
-  std::string payload = "foo";
-  quiche::QuicheBuffer buffer;
-  buffer = framer_.SerializeObjectDatagram(object, payload);
-  assert_eq!(buffer.size(), datagram->total_message_size());
-  assert_eq!(buffer.AsStringView(), datagram.packet_sample());
+fn test_datagram() -> Result<()> {
+    let datagram = TestObjectDatagramMessage::new();
+    let object = ObjectHeader {
+        subscribe_id: 3,
+        track_alias: 4,
+        group_id: 5,
+        object_id: 6,
+        object_send_order: 7,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Object,
+        object_payload_length: None,
+    };
+    let payload = Bytes::from_static(b"foo");
+    let mut buffer = vec![];
+    let buffer_size = MessageFramer::serialize_object_datagram(&object, payload, &mut buffer)?;
+    assert_eq!(buffer.len(), buffer_size);
+    assert_eq!(buffer.len(), datagram.total_message_size());
+    assert_eq!(&buffer[..], datagram.packet_sample());
     Ok(())
 }
-
+/*
 #[test]
 fn test_AllSubscribeInputs() -> Result<()> {
   for (std::optional<uint64_t> start_group :
