@@ -1,7 +1,7 @@
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_test::{
     create_test_message, MessageStructuredData, TestMessageBase, TestStreamHeaderGroupMessage,
-    TestStreamMiddlerGroupMessage,
+    TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage,
 };
 use crate::message::MessageType;
 use crate::{Error, Result};
@@ -150,23 +150,49 @@ fn test_group_middler() -> Result<()> {
     assert_eq!(&buffer2[..], middler.packet_sample());
     Ok(())
 }
-/*
-#[test]
-fn test_TrackMiddler() -> Result<()> {
-  auto header = std::make_unique<StreamHeaderTrackMessage>();
-  auto buffer1 = SerializeObject(
-      framer_, std::get<MoqtObject>(header->structured_data()), "foo", true);
-  assert_eq!(buffer1.size(), header->total_message_size());
-  assert_eq!(buffer1.AsStringView(), header.packet_sample());
 
-  auto middler = std::make_unique<StreamMiddlerTrackMessage>();
-  auto buffer2 = SerializeObject(
-      framer_, std::get<MoqtObject>(middler->structured_data()), "bar", false);
-  assert_eq!(buffer2.size(), middler->total_message_size());
-  assert_eq!(buffer2.AsStringView(), middler.packet_sample());
+#[test]
+fn test_track_middler() -> Result<()> {
+    let header = TestStreamHeaderTrackMessage::new();
+    let header_object_header =
+        if let MessageStructuredData::Object(object_header) = header.structured_data() {
+            object_header
+        } else {
+            assert!(false);
+            return Err(Error::ErrInvalidMessageType(0));
+        };
+    let mut buffer1 = vec![];
+    let buffer1_size = MessageFramer::serialize_object(
+        &header_object_header,
+        true,
+        Bytes::from_static(b"foo"),
+        &mut buffer1,
+    )?;
+    assert_eq!(buffer1_size, buffer1.len());
+    assert_eq!(buffer1.len(), header.total_message_size());
+    assert_eq!(&buffer1[..], header.packet_sample());
+
+    let middler = TestStreamMiddlerTrackMessage::new();
+    let middler_object_header =
+        if let MessageStructuredData::Object(object_header) = middler.structured_data() {
+            object_header
+        } else {
+            assert!(false);
+            return Err(Error::ErrInvalidMessageType(0));
+        };
+    let mut buffer2 = vec![];
+    let buffer2_size = MessageFramer::serialize_object(
+        &middler_object_header,
+        false,
+        Bytes::from_static(b"bar"),
+        &mut buffer2,
+    )?;
+    assert_eq!(buffer2_size, buffer2.len());
+    assert_eq!(buffer2.len(), middler.total_message_size());
+    assert_eq!(&buffer2[..], middler.packet_sample());
     Ok(())
 }
-
+/*
 #[test]
 fn test_BadObjectInput() -> Result<()> {
   MoqtObject object = {
