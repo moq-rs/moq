@@ -590,6 +590,7 @@ impl TestClientSetupMessage {
             supported_versions: vec![Version::Unsupported(0x01), Version::Unsupported(0x02)],
             role: Some(Role::PubSub),
             path: Some("foo".to_string()),
+            ..Default::default()
         };
         let mut raw_packet = vec![
             0x40, 0x40, // type

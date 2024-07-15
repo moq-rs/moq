@@ -31,7 +31,7 @@ pub enum MessageParserEvent {
 }
 
 pub struct MessageParser {
-    use_web_transport: bool,
+    uses_web_transport: bool,
     no_more_data: bool, // Fatal error or fin. No more parsing.
     parsing_error: bool,
 
@@ -56,7 +56,7 @@ pub struct MessageParser {
 impl MessageParser {
     pub fn new(use_web_transport: bool) -> Self {
         Self {
-            use_web_transport,
+            uses_web_transport: use_web_transport,
             no_more_data: false,
             parsing_error: false,
 
@@ -226,16 +226,16 @@ impl MessageParser {
             let mut msg_reader = self.buffered_message.as_ref();
             let (control_message, message_len) = match ControlMessage::deserialize(&mut msg_reader)
             {
-                Ok((control_message, message_len)) => {
-                    if let ControlMessage::ClientSetup(client_setup) = &control_message {
-                        if self.use_web_transport && client_setup.path.is_some() {
+                Ok((mut control_message, message_len)) => {
+                    if let ControlMessage::ClientSetup(client_setup) = &mut control_message {
+                        if self.uses_web_transport && client_setup.path.is_some() {
                             self.parse_error(
                                 ParserErrorCode::ProtocolViolation,
                                 "WebTransport connection is using PATH parameter in SETUP"
                                     .to_string(),
                             );
                             return 0;
-                        } else if !self.use_web_transport && client_setup.path.is_none() {
+                        } else if !self.uses_web_transport && client_setup.path.is_none() {
                             self.parse_error(
                                 ParserErrorCode::ProtocolViolation,
                                 "PATH SETUP parameter missing from Client message over QUIC"
@@ -243,7 +243,9 @@ impl MessageParser {
                             );
                             return 0;
                         }
+                        client_setup.uses_web_transport = self.uses_web_transport;
                     }
+
                     (control_message, message_len)
                 }
                 Err(err) => {

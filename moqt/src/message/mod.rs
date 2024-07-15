@@ -25,6 +25,7 @@ pub mod announce_error;
 pub mod announce_ok;
 pub mod client_setup;
 pub mod go_away;
+pub mod message_framer;
 pub mod message_parser;
 pub mod object;
 pub mod server_setup;

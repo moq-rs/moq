@@ -9,6 +9,16 @@ pub struct ClientSetup {
     pub supported_versions: Vec<Version>,
     pub role: Option<Role>,
     pub path: Option<String>,
+    pub(crate) uses_web_transport: bool,
+}
+
+impl ClientSetup {
+    pub fn new(uses_web_transport: bool) -> Self {
+        Self {
+            uses_web_transport,
+            ..Default::default()
+        }
+    }
 }
 
 impl Deserializer for ClientSetup {
@@ -88,6 +98,7 @@ impl Deserializer for ClientSetup {
                 supported_versions,
                 role,
                 path,
+                uses_web_transport: false,
             },
             tl,
         ))
@@ -105,8 +116,10 @@ impl Serializer for ClientSetup {
         if let Some(role) = self.role.as_ref() {
             parameters.insert(ParameterKey::Role, *role)?;
         }
-        if let Some(path) = self.path.as_ref() {
-            parameters.insert(ParameterKey::Path, path.to_string())?;
+        if !self.uses_web_transport {
+            if let Some(path) = self.path.as_ref() {
+                parameters.insert(ParameterKey::Path, path.to_string())?;
+            }
         }
         l += parameters.serialize(w)?;
 
@@ -137,6 +150,7 @@ mod test {
                     supported_versions: vec![Version::Draft01, Version::Draft02],
                     role: Some(Role::PubSub),
                     path: Some("foo".to_string()),
+                    ..Default::default()
                 }),
             ),
             (
@@ -150,6 +164,7 @@ mod test {
                     supported_versions: vec![Version::Draft00],
                     role: Some(Role::PubSub),
                     path: Some("e".to_string()),
+                    ..Default::default()
                 }),
             ),
         ];
