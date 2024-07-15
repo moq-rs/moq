@@ -1,5 +1,8 @@
 use crate::message::message_framer::MessageFramer;
-use crate::message::message_test::{create_test_message, MessageStructuredData, TestMessageBase};
+use crate::message::message_test::{
+    create_test_message, MessageStructuredData, TestMessageBase, TestStreamHeaderGroupMessage,
+    TestStreamMiddlerGroupMessage,
+};
 use crate::message::MessageType;
 use crate::{Error, Result};
 use bytes::{BufMut, Bytes};
@@ -105,52 +108,67 @@ fn test_framer_one_message(params: (MessageType, bool)) -> Result<()> {
     Ok(())
 }
 
-/*
-class MoqtFramerSimpleTest : public quic::test::QuicTest {
- public:
-  MoqtFramerSimpleTest()
-      : buffer_allocator_(quiche::SimpleBufferAllocator::Get()),
-        framer_(buffer_allocator_, /*web_transport=*/true) {}
+#[test]
+fn test_group_middler() -> Result<()> {
+    let header = TestStreamHeaderGroupMessage::new();
+    let header_object_header =
+        if let MessageStructuredData::Object(object_header) = header.structured_data() {
+            object_header
+        } else {
+            assert!(false);
+            return Err(Error::ErrInvalidMessageType(0));
+        };
 
-  quiche::SimpleBufferAllocator* buffer_allocator_;
-  MoqtFramer framer_;
+    let mut buffer1 = vec![];
+    let buffer1_size = MessageFramer::serialize_object(
+        &header_object_header,
+        true,
+        Bytes::from_static(b"foo"),
+        &mut buffer1,
+    )?;
+    assert_eq!(buffer1_size, buffer1.len());
+    assert_eq!(buffer1.len(), header.total_message_size());
+    assert_eq!(&buffer1[..], header.packet_sample());
 
-  // Obtain a pointer to an arbitrary offset in a serialized buffer.
-  const uint8_t* BufferAtOffset(quiche::QuicheBuffer& buffer, size_t offset) {
-    const char* data = buffer.data();
-    return reinterpret_cast<const uint8_t*>(data + offset);
-  }
-};
-
-TEST_F(MoqtFramerSimpleTest, GroupMiddler) {
-  auto header = std::make_unique<StreamHeaderGroupMessage>();
-  auto buffer1 = SerializeObject(
-      framer_, std::get<MoqtObject>(header->structured_data()), "foo", true);
-  assert_eq!(buffer1.size(), header->total_message_size());
-  assert_eq!(buffer1.AsStringView(), header->PacketSample());
-
-  auto middler = std::make_unique<StreamMiddlerGroupMessage>();
-  auto buffer2 = SerializeObject(
-      framer_, std::get<MoqtObject>(middler->structured_data()), "bar", false);
-  assert_eq!(buffer2.size(), middler->total_message_size());
-  assert_eq!(buffer2.AsStringView(), middler->PacketSample());
+    let middler = TestStreamMiddlerGroupMessage::new();
+    let middler_object_header =
+        if let MessageStructuredData::Object(object_header) = middler.structured_data() {
+            object_header
+        } else {
+            assert!(false);
+            return Err(Error::ErrInvalidMessageType(0));
+        };
+    let mut buffer2 = vec![];
+    let buffer2_size = MessageFramer::serialize_object(
+        &middler_object_header,
+        false,
+        Bytes::from_static(b"bar"),
+        &mut buffer2,
+    )?;
+    assert_eq!(buffer2_size, buffer2.len());
+    assert_eq!(buffer2.len(), middler.total_message_size());
+    assert_eq!(&buffer2[..], middler.packet_sample());
+    Ok(())
 }
-
-TEST_F(MoqtFramerSimpleTest, TrackMiddler) {
+/*
+#[test]
+fn test_TrackMiddler() -> Result<()> {
   auto header = std::make_unique<StreamHeaderTrackMessage>();
   auto buffer1 = SerializeObject(
       framer_, std::get<MoqtObject>(header->structured_data()), "foo", true);
   assert_eq!(buffer1.size(), header->total_message_size());
-  assert_eq!(buffer1.AsStringView(), header->PacketSample());
+  assert_eq!(buffer1.AsStringView(), header.packet_sample());
 
   auto middler = std::make_unique<StreamMiddlerTrackMessage>();
   auto buffer2 = SerializeObject(
       framer_, std::get<MoqtObject>(middler->structured_data()), "bar", false);
   assert_eq!(buffer2.size(), middler->total_message_size());
-  assert_eq!(buffer2.AsStringView(), middler->PacketSample());
+  assert_eq!(buffer2.AsStringView(), middler.packet_sample());
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, BadObjectInput) {
+#[test]
+fn test_BadObjectInput() -> Result<()> {
   MoqtObject object = {
       /*subscribe_id=*/3,
       /*track_alias=*/4,
@@ -175,9 +193,11 @@ TEST_F(MoqtFramerSimpleTest, BadObjectInput) {
   EXPECT_QUIC_BUG(buffer = framer_.SerializeObjectHeader(object, false),
                   "Object status must be kNormal if payload is non-empty");
   assert!(buffer.empty());
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, Datagram) {
+#[test]
+fn test_Datagram() -> Result<()> {
   auto datagram = std::make_unique<ObjectDatagramMessage>();
   MoqtObject object = {
       /*subscribe_id=*/3,
@@ -193,10 +213,12 @@ TEST_F(MoqtFramerSimpleTest, Datagram) {
   quiche::QuicheBuffer buffer;
   buffer = framer_.SerializeObjectDatagram(object, payload);
   assert_eq!(buffer.size(), datagram->total_message_size());
-  assert_eq!(buffer.AsStringView(), datagram->PacketSample());
+  assert_eq!(buffer.AsStringView(), datagram.packet_sample());
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, AllSubscribeInputs) {
+#[test]
+fn test_AllSubscribeInputs() -> Result<()> {
   for (std::optional<uint64_t> start_group :
        {std::optional<uint64_t>(), std::optional<uint64_t>(4)}) {
     for (std::optional<uint64_t> start_object :
@@ -252,9 +274,11 @@ TEST_F(MoqtFramerSimpleTest, AllSubscribeInputs) {
       }
     }
   }
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, SubscribeEndBeforeStart) {
+#[test]
+fn test_SubscribeEndBeforeStart() -> Result<()> {
   MoqtSubscribe subscribe = {
       /*subscribe_id=*/3,
       /*track_alias=*/4,
@@ -275,9 +299,11 @@ TEST_F(MoqtFramerSimpleTest, SubscribeEndBeforeStart) {
   EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribe(subscribe),
                   "Invalid object range");
   assert_eq!(buffer.size(), 0);
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, SubscribeLatestGroupNonzeroObject) {
+#[test]
+fn test_SubscribeLatestGroupNonzeroObject() -> Result<()> {
   MoqtSubscribe subscribe = {
       /*subscribe_id=*/3,
       /*track_alias=*/4,
@@ -293,9 +319,11 @@ TEST_F(MoqtFramerSimpleTest, SubscribeLatestGroupNonzeroObject) {
   EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribe(subscribe),
                   "Invalid object range");
   assert_eq!(buffer.size(), 0);
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, SubscribeUpdateEndGroupOnly) {
+#[test]
+fn test_SubscribeUpdateEndGroupOnly() -> Result<()> {
   MoqtSubscribeUpdate subscribe_update = {
       /*subscribe_id=*/3,
       /*start_group=*/4,
@@ -311,9 +339,11 @@ TEST_F(MoqtFramerSimpleTest, SubscribeUpdateEndGroupOnly) {
   assert_eq!(*end_group, 5);
   const uint8_t* end_object = end_group + 1;
   assert_eq!(*end_object, 0);
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, SubscribeUpdateIncrementsEnd) {
+#[test]
+fn test_SubscribeUpdateIncrementsEnd() -> Result<()> {
   MoqtSubscribeUpdate subscribe_update = {
       /*subscribe_id=*/3,
       /*start_group=*/4,
@@ -329,9 +359,11 @@ TEST_F(MoqtFramerSimpleTest, SubscribeUpdateIncrementsEnd) {
   assert_eq!(*end_group, 5);
   const uint8_t* end_object = end_group + 1;
   assert_eq!(*end_object, 7);
+    Ok(())
 }
 
-TEST_F(MoqtFramerSimpleTest, SubscribeUpdateInvalidRange) {
+#[test]
+fn test_SubscribeUpdateInvalidRange() -> Result<()> {
   MoqtSubscribeUpdate subscribe_update = {
       /*subscribe_id=*/3,
       /*start_group=*/4,
@@ -344,5 +376,6 @@ TEST_F(MoqtFramerSimpleTest, SubscribeUpdateInvalidRange) {
   EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribeUpdate(subscribe_update),
                   "Invalid object range");
   assert_eq!(buffer.size(), 0);
+    Ok(())
 }
  */
