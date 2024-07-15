@@ -20,6 +20,6 @@
  </a>
 </p>
 <p align="center">
- Media over QUIC - Subscribe
+ Media over QUIC - Subscriber
 </p>
 
