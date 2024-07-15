@@ -20,11 +20,11 @@
  Media over QUIC in Rust!
 </p>
 <p align="center">
-    <img src="https://raw.githubusercontent.com/webrtc-rs/webrtc/master/doc/uncheck.png">MoQ-Publish &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://crates.io/crates/moqp"><img src="https://img.shields.io/crates/v/moqp.svg"></a>
+    <img src="https://raw.githubusercontent.com/webrtc-rs/webrtc/master/doc/uncheck.png">MoQ-Publisher &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://crates.io/crates/moqp"><img src="https://img.shields.io/crates/v/moqp.svg"></a>
     <br>
     <img src="https://raw.githubusercontent.com/webrtc-rs/webrtc/master/doc/uncheck.png">MoQ-Relay &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://crates.io/crates/moqr"><img src="https://img.shields.io/crates/v/moqr.svg"></a>
     <br>
-    <img src="https://raw.githubusercontent.com/webrtc-rs/webrtc/master/doc/uncheck.png">MoQ-Subscribe &nbsp;<a href="https://crates.io/crates/moqs"><img src="https://img.shields.io/crates/v/moqs.svg"></a>
+    <img src="https://raw.githubusercontent.com/webrtc-rs/webrtc/master/doc/uncheck.png">MoQ-Subscriber &nbsp;<a href="https://crates.io/crates/moqs"><img src="https://img.shields.io/crates/v/moqs.svg"></a>
     <br>
     <img src="https://raw.githubusercontent.com/webrtc-rs/webrtc/master/doc/uncheck.png">MoQ-Transport &nbsp;&nbsp;<a href="https://crates.io/crates/moqt"><img src="https://img.shields.io/crates/v/moqt.svg"></a>
 </p>
