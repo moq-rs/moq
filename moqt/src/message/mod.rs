@@ -279,6 +279,16 @@ impl Serializer for FilterType {
                 Ok(l)
             }
             FilterType::AbsoluteRange(start, mut end) => {
+                if end.group_id < start.group_id {
+                    return Err(Error::ErrFrameError(
+                        "End group is less than start group".to_string(),
+                    ));
+                } else if end.group_id == start.group_id && end.object_id < start.object_id {
+                    return Err(Error::ErrFrameError(
+                        "End object comes before start object".to_string(),
+                    ));
+                }
+
                 let mut l = 0x4u64.serialize(w)?;
                 l += start.serialize(w)?;
                 if end.object_id == u64::MAX {

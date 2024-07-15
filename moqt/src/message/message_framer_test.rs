@@ -340,32 +340,58 @@ fn test_all_subscribe_inputs() -> Result<()> {
     }
     Ok(())
 }
-/*
+
 #[test]
-fn test_SubscribeEndBeforeStart() -> Result<()> {
-  MoqtSubscribe subscribe = {
-      /*subscribe_id=*/3,
-      /*track_alias=*/4,
-      /*track_namespace=*/"foo",
-      /*track_name=*/"abcd",
-      /*start_group=*/std::optional<uint64_t>(4),
-      /*start_object=*/std::optional<uint64_t>(3),
-      /*end_group=*/std::optional<uint64_t>(3),
-      /*end_object=*/std::nullopt,
-      /*authorization_info=*/"bar",
-  };
-  quiche::QuicheBuffer buffer;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribe(subscribe),
-                  "Invalid object range");
-  assert_eq!(buffer.size(), 0);
-  subscribe.end_group = 4;
-  subscribe.end_object = 1;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribe(subscribe),
-                  "Invalid object range");
-  assert_eq!(buffer.size(), 0);
+fn test_subscribe_end_before_start() -> Result<()> {
+    let mut subscribe = Subscribe {
+        subscribe_id: 3,
+        track_alias: 4,
+        track_namespace: "foo".to_string(),
+        track_name: "abcd".to_string(),
+        filter_type: FilterType::AbsoluteRange(
+            FullSequence {
+                group_id: 4,
+                object_id: 4,
+            },
+            FullSequence {
+                group_id: 3,
+                object_id: u64::MAX,
+            },
+        ),
+        authorization_info: Some("bar".to_string()),
+    };
+    let mut buffer = vec![];
+    assert!(
+        MessageFramer::serialize_control_message(
+            &ControlMessage::Subscribe(subscribe.clone()),
+            &mut buffer,
+        )
+        .is_err(),
+        "Invalid object range"
+    );
+    buffer.clear();
+    subscribe.filter_type = FilterType::AbsoluteRange(
+        FullSequence {
+            group_id: 4,
+            object_id: 4,
+        },
+        FullSequence {
+            group_id: 4,
+            object_id: 1,
+        },
+    );
+    assert!(
+        MessageFramer::serialize_control_message(
+            &ControlMessage::Subscribe(subscribe),
+            &mut buffer,
+        )
+        .is_err(),
+        "Invalid object range"
+    );
+    buffer.clear();
     Ok(())
 }
-
+/*
 #[test]
 fn test_SubscribeLatestGroupNonzeroObject() -> Result<()> {
   MoqtSubscribe subscribe = {
