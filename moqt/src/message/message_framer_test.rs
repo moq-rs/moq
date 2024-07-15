@@ -3,6 +3,7 @@ use crate::message::message_test::{
     create_test_message, MessageStructuredData, TestMessageBase, TestStreamHeaderGroupMessage,
     TestStreamHeaderTrackMessage, TestStreamMiddlerGroupMessage, TestStreamMiddlerTrackMessage,
 };
+use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
 use crate::message::MessageType;
 use crate::{Error, Result};
 use bytes::{BufMut, Bytes};
@@ -192,36 +193,42 @@ fn test_track_middler() -> Result<()> {
     assert_eq!(&buffer2[..], middler.packet_sample());
     Ok(())
 }
-/*
+
 #[test]
-fn test_BadObjectInput() -> Result<()> {
-  MoqtObject object = {
-      /*subscribe_id=*/3,
-      /*track_alias=*/4,
-      /*group_id=*/5,
-      /*object_id=*/6,
-      /*object_send_order=*/7,
-      /*object_status=*/MoqtObjectStatus::kNormal,
-      /*forwarding_preference=*/MoqtForwardingPreference::kObject,
-      /*payload_length=*/std::nullopt,
-  };
-  quiche::QuicheBuffer buffer;
-  object.forwarding_preference = MoqtForwardingPreference::kDatagram;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeObjectHeader(object, false),
-                  "must be first");
-  assert!(buffer.empty());
-  object.forwarding_preference = MoqtForwardingPreference::kGroup;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeObjectHeader(object, false),
-                  "requires knowing the object length");
-  assert!(buffer.empty());
-  object.payload_length = 5;
-  object.object_status = MoqtObjectStatus::kEndOfGroup;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeObjectHeader(object, false),
-                  "Object status must be kNormal if payload is non-empty");
-  assert!(buffer.empty());
+fn test_bad_object_input() -> Result<()> {
+    let mut object = ObjectHeader {
+        subscribe_id: 3,
+        track_alias: 4,
+        group_id: 5,
+        object_id: 6,
+        object_send_order: 7,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Object,
+        object_payload_length: None,
+    };
+    let mut buffer = vec![];
+    object.object_forwarding_preference = ObjectForwardingPreference::Datagram;
+    assert!(
+        MessageFramer::serialize_object_header(&object, false, &mut buffer).is_err(),
+        "must be first"
+    );
+    buffer.clear();
+    object.object_forwarding_preference = ObjectForwardingPreference::Group;
+    assert!(
+        MessageFramer::serialize_object_header(&object, false, &mut buffer).is_err(),
+        "requires knowing the object length"
+    );
+    buffer.clear();
+    object.object_payload_length = Some(5);
+    object.object_status = ObjectStatus::EndOfGroup;
+    assert!(
+        MessageFramer::serialize_object_header(&object, false, &mut buffer).is_err(),
+        "Object status must be kNormal if payload is non-empty"
+    );
+    buffer.clear();
     Ok(())
 }
-
+/*
 #[test]
 fn test_Datagram() -> Result<()> {
   auto datagram = std::make_unique<ObjectDatagramMessage>();
