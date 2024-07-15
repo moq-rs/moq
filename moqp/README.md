@@ -20,6 +20,6 @@
  </a>
 </p>
 <p align="center">
- Media over QUIC - Publish
+ Media over QUIC - Publisher
 </p>
 
