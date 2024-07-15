@@ -391,27 +391,32 @@ fn test_subscribe_end_before_start() -> Result<()> {
     buffer.clear();
     Ok(())
 }
-/*
+
 #[test]
-fn test_SubscribeLatestGroupNonzeroObject() -> Result<()> {
-  MoqtSubscribe subscribe = {
-      /*subscribe_id=*/3,
-      /*track_alias=*/4,
-      /*track_namespace=*/"foo",
-      /*track_name=*/"abcd",
-      /*start_group=*/std::nullopt,
-      /*start_object=*/std::optional<uint64_t>(3),
-      /*end_group=*/std::nullopt,
-      /*end_object=*/std::nullopt,
-      /*authorization_info=*/"bar",
-  };
-  quiche::QuicheBuffer buffer;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribe(subscribe),
-                  "Invalid object range");
-  assert_eq!(buffer.size(), 0);
+fn test_subscribe_latest_group_nonzero_object() -> Result<()> {
+    let subscribe = Subscribe {
+        subscribe_id: 3,
+        track_alias: 4,
+        track_namespace: "foo".to_string(),
+        track_name: "abcd".to_string(),
+        filter_type: FilterType::AbsoluteStart(FullSequence {
+            group_id: u64::MAX,
+            object_id: 3,
+        }),
+        authorization_info: Some("bar".to_string()),
+    };
+    let mut buffer = vec![];
+    assert!(
+        MessageFramer::serialize_control_message(
+            &ControlMessage::Subscribe(subscribe),
+            &mut buffer,
+        )
+        .is_err(),
+        "Invalid object range"
+    );
     Ok(())
 }
-
+/*
 #[test]
 fn test_SubscribeUpdateEndGroupOnly() -> Result<()> {
   MoqtSubscribeUpdate subscribe_update = {
