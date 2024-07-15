@@ -5,7 +5,8 @@ use crate::message::message_test::{
     TestStreamMiddlerTrackMessage,
 };
 use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
-use crate::message::MessageType;
+use crate::message::subscribe::Subscribe;
+use crate::message::{ControlMessage, FilterType, FullSequence, MessageType};
 use crate::{Error, Result};
 use bytes::{BufMut, Bytes};
 use rstest::rstest;
@@ -251,67 +252,95 @@ fn test_datagram() -> Result<()> {
     assert_eq!(&buffer[..], datagram.packet_sample());
     Ok(())
 }
-/*
+
 #[test]
-fn test_AllSubscribeInputs() -> Result<()> {
-  for (std::optional<uint64_t> start_group :
-       {std::optional<uint64_t>(), std::optional<uint64_t>(4)}) {
-    for (std::optional<uint64_t> start_object :
-         {std::optional<uint64_t>(), std::optional<uint64_t>(0)}) {
-      for (std::optional<uint64_t> end_group :
-           {std::optional<uint64_t>(), std::optional<uint64_t>(7)}) {
-        for (std::optional<uint64_t> end_object :
-             {std::optional<uint64_t>(), std::optional<uint64_t>(3)}) {
-          MoqtSubscribe subscribe = {
-              /*subscribe_id=*/3,
-              /*track_alias=*/4,
-              /*track_namespace=*/"foo",
-              /*track_name=*/"abcd",
-              start_group,
-              start_object,
-              end_group,
-              end_object,
-              /*authorization_info=*/"bar",
-          };
-          quiche::QuicheBuffer buffer;
-          MoqtFilterType expected_filter_type = MoqtFilterType::kNone;
-          if (!start_group.has_value() && !start_object.has_value() &&
-              !end_group.has_value() && !end_object.has_value()) {
-            expected_filter_type = MoqtFilterType::kLatestObject;
-          } else if (!start_group.has_value() && start_object.has_value() &&
-                     *start_object == 0 && !end_group.has_value() &&
-                     !end_object.has_value()) {
-            expected_filter_type = MoqtFilterType::kLatestGroup;
-          } else if (start_group.has_value() && start_object.has_value() &&
-                     !end_group.has_value() && !end_object.has_value()) {
-            expected_filter_type = MoqtFilterType::kAbsoluteStart;
-          } else if (start_group.has_value() && start_object.has_value() &&
-                     end_group.has_value()) {
-            expected_filter_type = MoqtFilterType::kAbsoluteRange;
-          }
-          if (expected_filter_type == MoqtFilterType::kNone) {
-            EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribe(subscribe),
-                            "Invalid object range");
-            assert_eq!(buffer.size(), 0);
-            continue;
-          }
-          buffer = framer_.SerializeSubscribe(subscribe);
-          // Go to the filter type.
-          const uint8_t* read = BufferAtOffset(buffer, 12);
-          assert_eq!(static_cast<MoqtFilterType>(*read), expected_filter_type);
-          EXPECT_GT(buffer.size(), 0);
-          if (expected_filter_type == MoqtFilterType::kAbsoluteRange &&
-              end_object.has_value()) {
-            const uint8_t* object_id = read + 4;
-            assert_eq!(*object_id, *end_object + 1);
-          }
+fn test_all_subscribe_inputs() -> Result<()> {
+    for start_group in [None, Some(4)] {
+        for start_object in [None, Some(0)] {
+            for end_group in [None, Some(7)] {
+                for end_object in [None, Some(3)] {
+                    let expected_filter_type;
+                    if !start_group.is_some()
+                        && !start_object.is_some()
+                        && !end_group.is_some()
+                        && !end_object.is_some()
+                    {
+                        expected_filter_type = FilterType::LatestObject;
+                    } else if !start_group.is_some()
+                        && start_object.is_some()
+                        && *start_object.as_ref().unwrap() == 0
+                        && !end_group.is_some()
+                        && !end_object.is_some()
+                    {
+                        expected_filter_type = FilterType::LatestGroup;
+                    } else if start_group.is_some()
+                        && start_object.is_some()
+                        && !end_group.is_some()
+                        && !end_object.is_some()
+                    {
+                        expected_filter_type = FilterType::AbsoluteStart(FullSequence {
+                            group_id: start_group.unwrap(),
+                            object_id: start_object.unwrap(),
+                        });
+                    } else if start_group.is_some() && start_object.is_some() && end_group.is_some()
+                    {
+                        if let Some(&end_object) = end_object.as_ref() {
+                            expected_filter_type = FilterType::AbsoluteRange(
+                                FullSequence {
+                                    group_id: start_group.unwrap(),
+                                    object_id: start_object.unwrap(),
+                                },
+                                FullSequence {
+                                    group_id: end_group.unwrap(),
+                                    object_id: end_object,
+                                },
+                            );
+                        } else {
+                            expected_filter_type = FilterType::AbsoluteRange(
+                                FullSequence {
+                                    group_id: start_group.unwrap(),
+                                    object_id: start_object.unwrap(),
+                                },
+                                FullSequence {
+                                    group_id: end_group.unwrap(),
+                                    object_id: u64::MAX,
+                                },
+                            );
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    let subscribe = Subscribe {
+                        subscribe_id: 3,
+                        track_alias: 4,
+                        track_namespace: "foo".to_string(),
+                        track_name: "abcd".to_string(),
+                        filter_type: expected_filter_type,
+                        authorization_info: None,
+                    };
+                    let mut buffer = vec![];
+                    let _ = MessageFramer::serialize_control_message(
+                        &ControlMessage::Subscribe(subscribe),
+                        &mut buffer,
+                    )?;
+                    // Go to the filter type.
+                    let read = buffer[12];
+                    assert_eq!(read, expected_filter_type.value());
+                    assert!(!buffer.is_empty());
+                    if let FilterType::AbsoluteRange(_, _) = expected_filter_type {
+                        if let Some(&end_object) = end_object.as_ref() {
+                            let object_id = buffer[12 + 4] as u64;
+                            assert_eq!(object_id, end_object + 1);
+                        }
+                    }
+                }
+            }
         }
-      }
     }
-  }
     Ok(())
 }
-
+/*
 #[test]
 fn test_SubscribeEndBeforeStart() -> Result<()> {
   MoqtSubscribe subscribe = {

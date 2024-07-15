@@ -220,6 +220,17 @@ pub enum FilterType {
     AbsoluteRange(FullSequence, FullSequence), // = 0x4,
 }
 
+impl FilterType {
+    pub fn value(&self) -> u8 {
+        match self {
+            FilterType::LatestGroup => 0x1,
+            FilterType::LatestObject => 0x2,
+            FilterType::AbsoluteStart(_) => 0x3,
+            FilterType::AbsoluteRange(_, _) => 0x4,
+        }
+    }
+}
+
 impl Deserializer for FilterType {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let (v, vl) = u64::deserialize(r)?;
