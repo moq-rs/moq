@@ -367,7 +367,7 @@ fn test_subscribe_end_before_start() -> Result<()> {
             &ControlMessage::Subscribe(subscribe.clone()),
             &mut buffer,
         )
-            .is_err(),
+        .is_err(),
         "Invalid object range"
     );
     buffer.clear();
@@ -386,7 +386,7 @@ fn test_subscribe_end_before_start() -> Result<()> {
             &ControlMessage::Subscribe(subscribe),
             &mut buffer,
         )
-            .is_err(),
+        .is_err(),
         "Invalid object range"
     );
     buffer.clear();
@@ -412,7 +412,7 @@ fn test_subscribe_latest_group_nonzero_object() -> Result<()> {
             &ControlMessage::Subscribe(subscribe),
             &mut buffer,
         )
-            .is_err(),
+        .is_err(),
         "Invalid object range"
     );
     Ok(())
@@ -444,41 +444,56 @@ fn test_subscribe_update_end_group_only() -> Result<()> {
     assert_eq!(end_object, 0);
     Ok(())
 }
-/*
+
 #[test]
-fn test_SubscribeUpdateIncrementsEnd() -> Result<()> {
-  MoqtSubscribeUpdate subscribe_update = {
-      /*subscribe_id=*/3,
-      /*start_group=*/4,
-      /*start_object=*/3,
-      /*end_group=*/4,
-      /*end_object=*/6,
-      /*authorization_info=*/"bar",
-  };
-  quiche::QuicheBuffer buffer;
-  buffer = framer_.SerializeSubscribeUpdate(subscribe_update);
-  EXPECT_GT(buffer.size(), 0);
-  const uint8_t* end_group = BufferAtOffset(buffer, 4);
-  assert_eq!(*end_group, 5);
-  const uint8_t* end_object = end_group + 1;
-  assert_eq!(*end_object, 7);
+fn test_subscribe_update_increments_end() -> Result<()> {
+    let subscribe_update = SubscribeUpdate {
+        subscribe_id: 3,
+        start_group_object: FullSequence {
+            group_id: 4,
+            object_id: 3,
+        },
+        end_group_object: Some(FullSequence {
+            group_id: 4,
+            object_id: 6,
+        }),
+        authorization_info: Some("bar".to_string()),
+    };
+    let mut buffer = vec![];
+    let _ = MessageFramer::serialize_control_message(
+        &ControlMessage::SubscribeUpdate(subscribe_update),
+        &mut buffer,
+    )?;
+    assert!(!buffer.is_empty());
+    let end_group = buffer[4];
+    assert_eq!(end_group, 5);
+    let end_object = buffer[4 + 1];
+    assert_eq!(end_object, 7);
     Ok(())
 }
 
 #[test]
-fn test_SubscribeUpdateInvalidRange() -> Result<()> {
-  MoqtSubscribeUpdate subscribe_update = {
-      /*subscribe_id=*/3,
-      /*start_group=*/4,
-      /*start_object=*/3,
-      /*end_group=*/std::nullopt,
-      /*end_object=*/6,
-      /*authorization_info=*/"bar",
-  };
-  quiche::QuicheBuffer buffer;
-  EXPECT_QUIC_BUG(buffer = framer_.SerializeSubscribeUpdate(subscribe_update),
-                  "Invalid object range");
-  assert_eq!(buffer.size(), 0);
+fn test_subscribe_update_invalid_range() -> Result<()> {
+    let subscribe_update = SubscribeUpdate {
+        subscribe_id: 3,
+        start_group_object: FullSequence {
+            group_id: 4,
+            object_id: 3,
+        },
+        end_group_object: Some(FullSequence {
+            group_id: u64::MAX,
+            object_id: 6,
+        }),
+        authorization_info: Some("bar".to_string()),
+    };
+    let mut buffer = vec![];
+    assert!(
+        MessageFramer::serialize_control_message(
+            &ControlMessage::SubscribeUpdate(subscribe_update),
+            &mut buffer,
+        )
+        .is_err(),
+        "Invalid object range"
+    );
     Ok(())
 }
- */

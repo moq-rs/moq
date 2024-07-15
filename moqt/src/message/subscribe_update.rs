@@ -107,19 +107,25 @@ impl Serializer for SubscribeUpdate {
 
         l += self.start_group_object.serialize(w)?;
         if let Some(end_group_object) = self.end_group_object.as_ref() {
-            if end_group_object.object_id == u64::MAX {
-                l += FullSequence {
-                    group_id: end_group_object.group_id + 1,
-                    object_id: 0,
+            let end_group_id = if end_group_object.group_id == u64::MAX {
+                if end_group_object.object_id != u64::MAX {
+                    return Err(Error::ErrFrameError("Invalid object range".to_string()));
                 }
-                .serialize(w)?;
+                0
             } else {
-                l += FullSequence {
-                    group_id: end_group_object.group_id + 1,
-                    object_id: end_group_object.object_id + 1,
-                }
-                .serialize(w)?;
+                end_group_object.group_id + 1
+            };
+            let end_object_id = if end_group_object.object_id == u64::MAX {
+                0
+            } else {
+                end_group_object.object_id + 1
+            };
+
+            l += FullSequence {
+                group_id: end_group_id,
+                object_id: end_object_id,
             }
+            .serialize(w)?;
         } else {
             l += FullSequence {
                 group_id: 0,
