@@ -3,7 +3,7 @@ use crate::message::object::ObjectForwardingPreference;
 use crate::message::subscribe::Subscribe;
 use crate::message::{FullTrackName, Role};
 use crate::session::local_track::LocalTrack;
-use crate::session::remote_track::{RemoteTrack, RemoteTrackVisitor};
+use crate::session::remote_track::RemoteTrack;
 use crate::session::session_parameters::SessionParameters;
 use crate::StreamId;
 use std::collections::{HashMap, HashSet};
@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 mod local_track;
 mod remote_track;
 mod session_parameters;
-mod stream;
+mod session_stream;
 mod subscribe_window;
 
 // If |error_message| is none, the ANNOUNCE was successful.
@@ -20,7 +20,6 @@ pub type OutgoingAnnounceCallback = fn(track_namespace: String, error: Option<An
 /// Indexed by subscribe_id.
 pub struct ActiveSubscribe {
     message: Subscribe,
-    visitor: Box<dyn RemoteTrackVisitor>,
     // The forwarding preference of the first received object, which all
     // subsequent objects must match.
     forwarding_preference: Option<ObjectForwardingPreference>,
