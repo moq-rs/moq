@@ -20,7 +20,8 @@ use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, Role};
 use crate::session::remote_track::RemoteTrackOnObjectFragment;
-use crate::session::session_parameters::{Perspective, SessionParameters};
+use crate::session::session_parameters::Perspective;
+use crate::session::Session;
 use crate::{Error, Result, StreamId};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::{info, trace};
@@ -49,7 +50,7 @@ pub struct StreamMessage {
     pub fin: bool,
 }
 
-pub struct Stream {
+pub struct Stream<'a> {
     // none means "incoming stream, and we don't know if it's the control
     // stream or a data stream yet".
     stream_id: StreamId,
@@ -57,16 +58,16 @@ pub struct Stream {
     transport: TransportContext,
     partial_object: Option<BytesMut>,
     parser: MessageParser,
-    session_parameters: SessionParameters,
+    session: &'a mut Session,
 
     eouts: VecDeque<StreamEventOut>,
     routs: VecDeque<Transmit<StreamMessage>>,
     wouts: VecDeque<Transmit<StreamMessage>>,
 }
 
-impl Stream {
+impl<'a> Stream<'a> {
     pub fn new(
-        session_parameters: SessionParameters,
+        session: &'a mut Session,
         stream_id: StreamId,
         is_control_stream: Option<bool>,
         transport: TransportContext,
@@ -76,8 +77,8 @@ impl Stream {
             is_control_stream,
             transport,
             partial_object: None,
-            parser: MessageParser::new(session_parameters.use_web_transport),
-            session_parameters,
+            parser: MessageParser::new(session.parameters.use_web_transport),
+            session,
 
             eouts: VecDeque::new(),
             routs: VecDeque::new(),
@@ -86,7 +87,7 @@ impl Stream {
     }
 
     pub fn perspective(&self) -> Perspective {
-        self.session_parameters.perspective
+        self.session.parameters.perspective
     }
 
     fn check_if_is_control_stream(&self, message_name: &str) -> Result<()> {
@@ -127,7 +128,7 @@ impl Stream {
                 "{:?} Received OBJECT message on stream {} for subscribe_id {} for
            track alias {} with sequence {}:{} send_order {} forwarding_preference {:?} length {}
            explicit length {} {}",
-                self.session_parameters.perspective,
+                self.session.parameters.perspective,
                 self.stream_id,
                 object_header.subscribe_id,
                 object_header.track_alias,
@@ -145,7 +146,7 @@ impl Stream {
             )
         );
 
-        if !self.session_parameters.deliver_partial_objects {
+        if !self.session.parameters.deliver_partial_objects {
             if !fin {
                 // Buffer partial object.
                 if self.partial_object.is_none() {
@@ -193,20 +194,20 @@ impl Stream {
         }
         if !client_setup
             .supported_versions
-            .contains(&self.session_parameters.version)
+            .contains(&self.session.parameters.version)
         {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 format!(
                     "Version mismatch: expected {:?}",
-                    self.session_parameters.version
+                    self.session.parameters.version
                 ),
             ));
         }
         info!("{:?} Received the CLIENT_SETUP message", self.perspective());
-        if self.session_parameters.perspective == Perspective::Server {
+        if self.session.parameters.perspective == Perspective::Server {
             let response = ServerSetup {
-                supported_version: self.session_parameters.version,
+                supported_version: self.session.parameters.version,
                 role: Some(Role::PubSub),
             };
             let mut message = BytesMut::new();
@@ -240,18 +241,18 @@ impl Stream {
             self.is_control_stream = Some(true);
         }
 
-        if self.session_parameters.perspective == Perspective::Server {
+        if self.session.parameters.perspective == Perspective::Server {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 "Received SERVER_SETUP from client".to_string(),
             ));
         }
-        if server_setup.supported_version != self.session_parameters.version {
+        if server_setup.supported_version != self.session.parameters.version {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 format!(
                     "Version mismatch: expected {:?}",
-                    self.session_parameters.version
+                    self.session.parameters.version
                 ),
             ));
         }
@@ -264,7 +265,110 @@ impl Stream {
 
     fn on_subscribe_message(&mut self, _subscribe: Subscribe) -> Result<()> {
         self.check_if_is_control_stream("SUBSCRIBE")?;
-
+        /*
+                if (session_->peer_role_ == MoqtRole::kPublisher) {
+                    QUIC_DLOG(INFO) << ENDPOINT << "Publisher peer sent SUBSCRIBE";
+                    session_->Error(MoqtError::kProtocolViolation,
+                                    "Received SUBSCRIBE from publisher");
+                    return;
+                }
+                QUIC_DLOG(INFO) << ENDPOINT << "Received a SUBSCRIBE for "
+                    << message.track_namespace << ":" << message.track_name;
+                auto it = session_->local_tracks_.find(FullTrackName(
+                    std::string(message.track_namespace), std::string(message.track_name)));
+                if (it == session_->local_tracks_.end()) {
+                    QUIC_DLOG(INFO) << ENDPOINT << "Rejected because "
+                        << message.track_namespace << ":" << message.track_name
+                        << " does not exist";
+                    SendSubscribeError(message, SubscribeErrorCode::kInternalError,
+                                       "Track does not exist", message.track_alias);
+                    return;
+                }
+                LocalTrack& track = it->second;
+                if (it->second.canceled()) {
+                    // Note that if the track has already been deleted, there will not be a
+                    // protocol violation, which the spec says there SHOULD be. It's not worth
+                    // keeping state on deleted tracks.
+                    session_->Error(MoqtError::kProtocolViolation,
+                                    "Received SUBSCRIBE for canceled track");
+                    return;
+                }
+                if ((track.track_alias().has_value() &&
+                    message.track_alias != *track.track_alias()) ||
+                    session_->used_track_aliases_.contains(message.track_alias)) {
+                    // Propose a different track_alias.
+                    SendSubscribeError(message, SubscribeErrorCode::kRetryTrackAlias,
+                                       "Track alias already exists",
+                                       session_->next_local_track_alias_++);
+                    return;
+                } else {  // Use client-provided alias.
+                    track.set_track_alias(message.track_alias);
+                    if (message.track_alias >= session_->next_local_track_alias_) {
+                        session_->next_local_track_alias_ = message.track_alias + 1;
+                    }
+                    session_->used_track_aliases_.insert(message.track_alias);
+                }
+                FullSequence start;
+                if (message.start_group.has_value()) {
+                    // The filter is AbsoluteStart or AbsoluteRange.
+                    QUIC_BUG_IF(quic_bug_invalid_subscribe, !message.start_object.has_value())
+                        << "Start group without start object";
+                    start = FullSequence(*message.start_group, *message.start_object);
+                } else {
+                    // The filter is LatestObject or LatestGroup.
+                    start = track.next_sequence();
+                    if (message.start_object.has_value()) {
+                        // The filter is LatestGroup.
+                        QUIC_BUG_IF(quic_bug_invalid_subscribe, *message.start_object != 0)
+                            << "LatestGroup does not start with zero";
+                        start.object = 0;
+                    } else {
+                        --start.object;
+                    }
+                }
+                LocalTrack::Visitor::PublishPastObjectsCallback publish_past_objects;
+                std::optional<SubscribeWindow> past_window;
+                if (start < track.next_sequence() && track.visitor() != nullptr) {
+                    // Pull a copy of objects that have already been published.
+                    FullSequence end_of_past_subscription{
+                        message.end_group.has_value() ? *message.end_group : UINT64_MAX,
+                        message.end_object.has_value() ? *message.end_object : UINT64_MAX};
+                    end_of_past_subscription =
+                        std::min(end_of_past_subscription, track.next_sequence());
+                    past_window.emplace(message.subscribe_id, track.forwarding_preference(),
+                                        track.next_sequence(), start, end_of_past_subscription);
+                    absl::StatusOr<LocalTrack::Visitor::PublishPastObjectsCallback>
+                        past_objects_available =
+                        track.visitor()->OnSubscribeForPast(*past_window);
+                    if (!past_objects_available.ok()) {
+                        SendSubscribeError(message, SubscribeErrorCode::kInternalError,
+                                           past_objects_available.status().message(),
+                                           message.track_alias);
+                        return;
+                    }
+                    publish_past_objects = *std::move(past_objects_available);
+                }
+                MoqtSubscribeOk subscribe_ok;
+                subscribe_ok.subscribe_id = message.subscribe_id;
+                SendOrBufferMessage(session_->framer_.SerializeSubscribeOk(subscribe_ok));
+                QUIC_DLOG(INFO) << ENDPOINT << "Created subscription for "
+                    << message.track_namespace << ":" << message.track_name;
+                if (!message.end_group.has_value()) {
+                    track.AddWindow(message.subscribe_id, start.group, start.object);
+                } else if (message.end_object.has_value()) {
+                    track.AddWindow(message.subscribe_id, start.group, start.object,
+                                    *message.end_group, *message.end_object);
+                } else {
+                    track.AddWindow(message.subscribe_id, start.group, start.object,
+                                    *message.end_group);
+                }
+                session_->local_track_by_subscribe_id_.emplace(message.subscribe_id,
+                                                               track.full_track_name());
+                if (publish_past_objects) {
+                    QUICHE_DCHECK(past_window.has_value());
+                    std::move(publish_past_objects)();
+                }
+        */
         Ok(())
     }
 
@@ -350,7 +454,7 @@ impl Stream {
     }
 }
 
-impl Handler for Stream {
+impl<'a> Handler for Stream<'a> {
     type Ein = StreamEventIn;
     type Eout = StreamEventOut;
     type Rin = StreamMessage;
