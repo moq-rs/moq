@@ -16,6 +16,16 @@ pub trait Handler {
     /// Associated write output message type for
     type Wout: 'static;
 
+    /// Transport is active now, which means it is connected.
+    fn transport_active(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Transport is inactive now, which means it is disconnected.
+    fn transport_inactive(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     /// Handles Rin and returns Rout for next inbound handler handling
     fn handle_read(&mut self, msg: Transmit<Self::Rin>) -> Result<()>;
 

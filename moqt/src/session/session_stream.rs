@@ -358,6 +358,14 @@ impl Handler for Stream {
     type Win = StreamMessage;
     type Wout = StreamMessage;
 
+    fn transport_active(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn transport_inactive(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     fn handle_read(&mut self, msg: Transmit<Self::Rin>) -> Result<()> {
         self.parser
             .process_data(&mut &msg.message.message[..], msg.message.fin);
