@@ -1,3 +1,4 @@
+use crate::handler::Handler;
 use crate::message::announce_error::AnnounceErrorReason;
 use crate::message::object::ObjectForwardingPreference;
 use crate::message::subscribe::Subscribe;
@@ -5,8 +6,11 @@ use crate::message::{FullTrackName, Role};
 use crate::session::local_track::LocalTrack;
 use crate::session::remote_track::RemoteTrack;
 use crate::session::session_parameters::SessionParameters;
+use crate::Result;
 use crate::StreamId;
+use retty::transport::Transmit;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 mod local_track;
 mod remote_track;
@@ -77,5 +81,54 @@ impl Session {
             pending_outgoing_announces: Default::default(),
             peer_role: Default::default(),
         }
+    }
+}
+
+impl Handler for Session {
+    type Ein = ();
+    type Eout = ();
+    type Rin = ();
+    type Rout = ();
+    type Win = ();
+    type Wout = ();
+
+    fn transport_active(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn transport_inactive(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn handle_read(&mut self, _msg: Transmit<Self::Rin>) -> Result<()> {
+        todo!()
+    }
+
+    fn poll_read(&mut self) -> Option<Transmit<Self::Rout>> {
+        todo!()
+    }
+
+    fn handle_write(&mut self, _msg: Transmit<Self::Win>) -> Result<()> {
+        todo!()
+    }
+
+    fn poll_write(&mut self) -> Option<Transmit<Self::Wout>> {
+        todo!()
+    }
+
+    fn handle_event(&mut self, _evt: Self::Ein) -> Result<()> {
+        todo!()
+    }
+
+    fn poll_event(&mut self) -> Option<Self::Eout> {
+        todo!()
+    }
+
+    fn handle_timeout(&mut self, _now: Instant) -> Result<()> {
+        todo!()
+    }
+
+    fn poll_timeout(&mut self) -> Option<Instant> {
+        todo!()
     }
 }
