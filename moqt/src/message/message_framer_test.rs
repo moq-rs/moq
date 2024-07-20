@@ -45,7 +45,7 @@ impl TestFramer {
 
     fn serialize_message<W: BufMut>(
         &self,
-        structured_data: &MessageStructuredData,
+        structured_data: MessageStructuredData,
         w: &mut W,
     ) -> Result<usize> {
         match self.message_type {
@@ -105,7 +105,7 @@ fn test_framer_one_message(params: (MessageType, bool)) -> Result<()> {
     let message = tester.make_message();
     let structured_data = message.structured_data();
     let mut buffer = vec![];
-    let size = tester.serialize_message(&structured_data, &mut buffer)?;
+    let size = tester.serialize_message(structured_data, &mut buffer)?;
     assert_eq!(size, buffer.len());
     assert_eq!(buffer.len(), message.packet_sample().len());
     assert_eq!(&buffer[..], message.packet_sample());
@@ -125,7 +125,7 @@ fn test_group_middler() -> Result<()> {
 
     let mut buffer1 = vec![];
     let buffer1_size = MessageFramer::serialize_object(
-        &header_object_header,
+        header_object_header,
         true,
         Bytes::from_static(b"foo"),
         &mut buffer1,
@@ -144,7 +144,7 @@ fn test_group_middler() -> Result<()> {
         };
     let mut buffer2 = vec![];
     let buffer2_size = MessageFramer::serialize_object(
-        &middler_object_header,
+        middler_object_header,
         false,
         Bytes::from_static(b"bar"),
         &mut buffer2,
@@ -167,7 +167,7 @@ fn test_track_middler() -> Result<()> {
         };
     let mut buffer1 = vec![];
     let buffer1_size = MessageFramer::serialize_object(
-        &header_object_header,
+        header_object_header,
         true,
         Bytes::from_static(b"foo"),
         &mut buffer1,
@@ -186,7 +186,7 @@ fn test_track_middler() -> Result<()> {
         };
     let mut buffer2 = vec![];
     let buffer2_size = MessageFramer::serialize_object(
-        &middler_object_header,
+        middler_object_header,
         false,
         Bytes::from_static(b"bar"),
         &mut buffer2,
@@ -212,20 +212,20 @@ fn test_bad_object_input() -> Result<()> {
     let mut buffer = vec![];
     object.object_forwarding_preference = ObjectForwardingPreference::Datagram;
     assert!(
-        MessageFramer::serialize_object_header(&object, false, &mut buffer).is_err(),
+        MessageFramer::serialize_object_header(object, false, &mut buffer).is_err(),
         "must be first"
     );
     buffer.clear();
     object.object_forwarding_preference = ObjectForwardingPreference::Group;
     assert!(
-        MessageFramer::serialize_object_header(&object, false, &mut buffer).is_err(),
+        MessageFramer::serialize_object_header(object, false, &mut buffer).is_err(),
         "requires knowing the object length"
     );
     buffer.clear();
     object.object_payload_length = Some(5);
     object.object_status = ObjectStatus::EndOfGroup;
     assert!(
-        MessageFramer::serialize_object_header(&object, false, &mut buffer).is_err(),
+        MessageFramer::serialize_object_header(object, false, &mut buffer).is_err(),
         "Object status must be kNormal if payload is non-empty"
     );
     buffer.clear();
@@ -247,7 +247,7 @@ fn test_datagram() -> Result<()> {
     };
     let payload = Bytes::from_static(b"foo");
     let mut buffer = vec![];
-    let buffer_size = MessageFramer::serialize_object_datagram(&object, payload, &mut buffer)?;
+    let buffer_size = MessageFramer::serialize_object_datagram(object, payload, &mut buffer)?;
     assert_eq!(buffer.len(), buffer_size);
     assert_eq!(buffer.len(), datagram.total_message_size());
     assert_eq!(&buffer[..], datagram.packet_sample());
@@ -322,7 +322,7 @@ fn test_all_subscribe_inputs() -> Result<()> {
                     };
                     let mut buffer = vec![];
                     let _ = MessageFramer::serialize_control_message(
-                        &ControlMessage::Subscribe(subscribe),
+                        ControlMessage::Subscribe(subscribe),
                         &mut buffer,
                     )?;
                     // Go to the filter type.
@@ -364,7 +364,7 @@ fn test_subscribe_end_before_start() -> Result<()> {
     let mut buffer = vec![];
     assert!(
         MessageFramer::serialize_control_message(
-            &ControlMessage::Subscribe(subscribe.clone()),
+            ControlMessage::Subscribe(subscribe.clone()),
             &mut buffer,
         )
         .is_err(),
@@ -383,10 +383,10 @@ fn test_subscribe_end_before_start() -> Result<()> {
     );
     assert!(
         MessageFramer::serialize_control_message(
-            &ControlMessage::Subscribe(subscribe),
+            ControlMessage::Subscribe(subscribe),
             &mut buffer,
         )
-        .is_err(),
+            .is_err(),
         "Invalid object range"
     );
     buffer.clear();
@@ -409,10 +409,10 @@ fn test_subscribe_latest_group_nonzero_object() -> Result<()> {
     let mut buffer = vec![];
     assert!(
         MessageFramer::serialize_control_message(
-            &ControlMessage::Subscribe(subscribe),
+            ControlMessage::Subscribe(subscribe),
             &mut buffer,
         )
-        .is_err(),
+            .is_err(),
         "Invalid object range"
     );
     Ok(())
@@ -434,7 +434,7 @@ fn test_subscribe_update_end_group_only() -> Result<()> {
     };
     let mut buffer = vec![];
     let _ = MessageFramer::serialize_control_message(
-        &ControlMessage::SubscribeUpdate(subscribe_update),
+        ControlMessage::SubscribeUpdate(subscribe_update),
         &mut buffer,
     )?;
     assert!(!buffer.is_empty());
@@ -461,7 +461,7 @@ fn test_subscribe_update_increments_end() -> Result<()> {
     };
     let mut buffer = vec![];
     let _ = MessageFramer::serialize_control_message(
-        &ControlMessage::SubscribeUpdate(subscribe_update),
+        ControlMessage::SubscribeUpdate(subscribe_update),
         &mut buffer,
     )?;
     assert!(!buffer.is_empty());
@@ -489,7 +489,7 @@ fn test_subscribe_update_invalid_range() -> Result<()> {
     let mut buffer = vec![];
     assert!(
         MessageFramer::serialize_control_message(
-            &ControlMessage::SubscribeUpdate(subscribe_update),
+            ControlMessage::SubscribeUpdate(subscribe_update),
             &mut buffer,
         )
         .is_err(),

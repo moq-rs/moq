@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
-pub enum ParserErrorCode {
+pub enum ErrorCode {
     #[default]
     NoError = 0x0,
     InternalError = 0x1,
@@ -18,14 +18,14 @@ pub enum ParserErrorCode {
     GoawayTimeout = 0x10,
 }
 
-impl Display for ParserErrorCode {
+impl Display for ErrorCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", *self)
     }
 }
 
 pub enum MessageParserEvent {
-    ParsingError(ParserErrorCode, String),
+    ParsingError(ErrorCode, String),
     ObjectMessage(ObjectHeader, Bytes, bool),
     ControlMessage(ControlMessage),
 }
@@ -78,7 +78,7 @@ impl MessageParser {
     pub fn process_data<R: Buf>(&mut self, buf: &mut R, fin: bool) {
         if self.no_more_data {
             self.parse_error(
-                ParserErrorCode::ProtocolViolation,
+                ErrorCode::ProtocolViolation,
                 "Data after end of stream".to_string(),
             );
         }
@@ -89,14 +89,14 @@ impl MessageParser {
             if self.object_payload_in_progress() && self.payload_length_remaining > buf.remaining()
             {
                 self.parse_error(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "End of stream before complete OBJECT PAYLOAD".to_string(),
                 );
                 return;
             }
             if !self.buffered_message.is_empty() && !buf.has_remaining() {
                 self.parse_error(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "End of stream before complete message".to_string(),
                 );
                 return;
@@ -154,14 +154,14 @@ impl MessageParser {
             if message_len == 0 {
                 if self.buffered_message.remaining() > MAX_MESSSAGE_HEADER_SIZE {
                     self.parse_error(
-                        ParserErrorCode::InternalError,
+                        ErrorCode::InternalError,
                         "Cannot parse non-OBJECT messages > 2KB".to_string(),
                     );
                     return;
                 }
                 if fin {
                     self.parse_error(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "FIN after incomplete message".to_string(),
                     );
                     return;
@@ -177,7 +177,7 @@ impl MessageParser {
         let (object_header, _) = MessageParser::parse_object_header(r)?;
         if object_header.object_forwarding_preference != ObjectForwardingPreference::Datagram {
             return Err(Error::ErrParseError(
-                ParserErrorCode::ProtocolViolation,
+                ErrorCode::ProtocolViolation,
                 "invalid datagram".to_string(),
             ));
         }
@@ -213,7 +213,7 @@ impl MessageParser {
 
         if message_type == MessageType::ObjectDatagram {
             self.parse_error(
-                ParserErrorCode::ProtocolViolation,
+                ErrorCode::ProtocolViolation,
                 "Received OBJECT_DATAGRAM on strea".to_string(),
             );
             0
@@ -230,14 +230,14 @@ impl MessageParser {
                     if let ControlMessage::ClientSetup(client_setup) = &mut control_message {
                         if self.uses_web_transport && client_setup.path.is_some() {
                             self.parse_error(
-                                ParserErrorCode::ProtocolViolation,
+                                ErrorCode::ProtocolViolation,
                                 "WebTransport connection is using PATH parameter in SETUP"
                                     .to_string(),
                             );
                             return 0;
                         } else if !self.uses_web_transport && client_setup.path.is_none() {
                             self.parse_error(
-                                ParserErrorCode::ProtocolViolation,
+                                ErrorCode::ProtocolViolation,
                                 "PATH SETUP parameter missing from Client message over QUIC"
                                     .to_string(),
                             );
@@ -389,7 +389,7 @@ impl MessageParser {
         if let Some(object_metadata) = object_header.as_ref() {
             if object_metadata.object_status == ObjectStatus::Invalid {
                 return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "Invalid object status".to_string(),
                 ));
             }
@@ -401,7 +401,7 @@ impl MessageParser {
                 {
                     // There is additional data in the stream/datagram, which is an error.
                     return Err(Error::ErrParseError(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "Object with non-normal status has payload".to_string(),
                     ));
                 }
@@ -424,7 +424,7 @@ impl MessageParser {
             let mut payload_to_draw = r.remaining();
             if fin && has_length && payload_length > r.remaining() {
                 return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "Received FIN mid-payload".to_string(),
                 ));
             }
@@ -454,7 +454,7 @@ impl MessageParser {
         Ok(total_len)
     }
 
-    fn parse_error(&mut self, error_code: ParserErrorCode, error_reason: String) {
+    fn parse_error(&mut self, error_code: ErrorCode, error_reason: String) {
         if self.parsing_error {
             return; // Don't send multiple parse errors.
         }

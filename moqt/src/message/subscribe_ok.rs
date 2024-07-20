@@ -1,4 +1,4 @@
-use crate::message::message_parser::ParserErrorCode;
+use crate::message::message_parser::ErrorCode;
 use crate::message::FullSequence;
 use crate::{Deserializer, Error, Result, Serializer};
 use bytes::{Buf, BufMut};
@@ -21,7 +21,7 @@ impl Deserializer for SubscribeOk {
         let (exist, l) = bool::deserialize(r).map_err(|err| {
             if let Error::ErrInvalidBooleanValue(b) = err {
                 Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     format!("SUBSCRIBE_OK ContentExists has invalid value {}", b),
                 )
             } else {

@@ -1,4 +1,4 @@
-use crate::message::message_parser::ParserErrorCode;
+use crate::message::message_parser::ErrorCode;
 use crate::message::{Role, Version};
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Error, Parameters, Result, Serializer};
@@ -33,7 +33,7 @@ impl Deserializer for ServerSetup {
             if key == ParameterKey::Role as u64 {
                 if role.is_some() {
                     return Err(Error::ErrParseError(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "ROLE parameter appears twice in SETUP".to_string(),
                     ));
                 }
@@ -42,20 +42,20 @@ impl Deserializer for ServerSetup {
 
                 if rl != size {
                     return Err(Error::ErrParseError(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "Parameter length does not match varint encoding".to_string(),
                     ));
                 }
 
                 role = Some(r.try_into().map_err(|_| {
                     Error::ErrParseError(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "Invalid ROLE parameter".to_string(),
                     )
                 })?);
             } else if key == ParameterKey::Path as u64 {
                 return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "PATH parameter in SERVER_SETUP".to_string(),
                 ));
             }
@@ -63,7 +63,7 @@ impl Deserializer for ServerSetup {
 
         if role.is_none() {
             return Err(Error::ErrParseError(
-                ParserErrorCode::ProtocolViolation,
+                ErrorCode::ProtocolViolation,
                 "ROLE parameter missing from SERVER_SETUP message".to_string(),
             ));
         }

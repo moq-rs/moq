@@ -204,6 +204,7 @@ impl LocalTrack {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::Result;
 
     struct LocalTrackTest {
         track: LocalTrack,

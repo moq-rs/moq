@@ -1,4 +1,4 @@
-use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
+use crate::message::message_parser::{ErrorCode, MessageParser, MessageParserEvent};
 use crate::message::message_test::{
     create_test_message, MessageStructuredData, TestMessageBase, TestObjectDatagramMessage,
     TestObjectStreamMessage, TestStreamHeaderGroupMessage, TestStreamHeaderTrackMessage,
@@ -45,7 +45,7 @@ struct TestParserVisitor {
     object_payload: Option<Bytes>,
     end_of_message: bool,
     parsing_error: Option<String>,
-    parsing_error_code: ParserErrorCode,
+    parsing_error_code: ErrorCode,
     messages_received: u64,
     last_message: Option<MessageStructuredData>,
 }
@@ -56,7 +56,7 @@ impl TestParserVisitor {
             object_payload: None,
             end_of_message: false,
             parsing_error: None,
-            parsing_error_code: ParserErrorCode::NoError,
+            parsing_error_code: ErrorCode::NoError,
             messages_received: 0,
             last_message: None,
         }
@@ -72,7 +72,7 @@ impl TestParserVisitor {
         }
     }
 
-    fn on_parsing_error(&mut self, code: ParserErrorCode, reason: String) {
+    fn on_parsing_error(&mut self, code: ErrorCode, reason: String) {
         self.parsing_error = Some(reason);
         self.parsing_error_code = code;
     }
@@ -647,7 +647,7 @@ fn test_separate_early_fin(params: (MessageType, bool)) -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
     Ok(())
 }
@@ -913,7 +913,7 @@ fn test_client_setup_role_is_invalid() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -940,7 +940,7 @@ fn test_server_setup_role_is_invalid() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -969,7 +969,7 @@ fn test_setup_role_appears_twice() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -996,7 +996,7 @@ fn test_client_setup_role_is_missing() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1021,7 +1021,7 @@ fn test_server_setup_role_is_missing() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1051,7 +1051,7 @@ fn test_setup_role_varint_length_is_wrong() -> Result<()> {
 
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ParameterLengthMismatch
+        ErrorCode::ParameterLengthMismatch
     );
 
     Ok(())
@@ -1078,7 +1078,7 @@ fn test_setup_path_from_server() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1107,7 +1107,7 @@ fn test_setup_path_appears_twice() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1135,7 +1135,7 @@ fn test_setup_path_over_webtrans() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1162,7 +1162,7 @@ fn test_setup_path_missing() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1192,7 +1192,7 @@ fn test_subscribe_authorization_info_twice() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1220,7 +1220,7 @@ fn test_subscribe_update_authorization_info_twice() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1248,7 +1248,7 @@ fn test_announce_authorization_info_twice() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1274,7 +1274,7 @@ fn test_fin_mid_payload() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1304,7 +1304,7 @@ fn test_partial_payload_then_fin() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1329,7 +1329,7 @@ fn test_data_after_fin() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1354,7 +1354,7 @@ fn test_non_normal_object_has_payload() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1379,7 +1379,7 @@ fn test_invalid_object_status() -> Result<()> {
     );
     assert_eq!(
         tester.visitor.parsing_error_code,
-        ParserErrorCode::ProtocolViolation
+        ErrorCode::ProtocolViolation
     );
 
     Ok(())
@@ -1408,10 +1408,7 @@ fn test_setup2kb() -> Result<()> {
         tester.visitor.parsing_error,
         Some("Cannot parse non-OBJECT messages > 2KB".to_string())
     );
-    assert_eq!(
-        tester.visitor.parsing_error_code,
-        ParserErrorCode::InternalError
-    );
+    assert_eq!(tester.visitor.parsing_error_code, ErrorCode::InternalError);
 
     Ok(())
 }
@@ -1889,7 +1886,7 @@ fn test_wrong_message_in_datagram() -> Result<()> {
     assert!(result.is_err());
     assert_eq!(
         Err(Error::ErrParseError(
-            ParserErrorCode::ProtocolViolation,
+            ErrorCode::ProtocolViolation,
             "invalid datagram".to_string(),
         )),
         result

@@ -1,4 +1,4 @@
-use crate::message::message_parser::ParserErrorCode;
+use crate::message::message_parser::ErrorCode;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
@@ -38,9 +38,11 @@ pub enum Error {
     #[error("object status must be kNormal if payload is non-empty")]
     ErrNonEmptyPayloadMustBeWithNormalObjectStatus,
     #[error("parse error with code: {0} and reason: {1}")]
-    ErrParseError(ParserErrorCode, String),
+    ErrParseError(ErrorCode, String),
     #[error("frame error with reason: {0}")]
     ErrFrameError(String),
+    #[error("stream error with code: {0} and reason: {1}")]
+    ErrStreamError(ErrorCode, String),
     #[error("{0}")]
     ErrOther(String),
 

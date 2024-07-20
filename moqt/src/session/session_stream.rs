@@ -1,15 +1,18 @@
 use crate::handler::Handler;
-use crate::message::message_parser::{MessageParser, MessageParserEvent, ParserErrorCode};
+use crate::message::client_setup::ClientSetup;
+use crate::message::message_framer::MessageFramer;
+use crate::message::message_parser::{ErrorCode, MessageParser, MessageParserEvent};
 use crate::message::object::ObjectHeader;
-use crate::message::{ControlMessage};
+use crate::message::server_setup::ServerSetup;
+use crate::message::{ControlMessage, Role};
+use crate::session::remote_track::RemoteTrackOnObjectFragment;
 use crate::session::session_parameters::{Perspective, SessionParameters};
 use crate::{Error, Result, StreamId};
 use bytes::{BufMut, Bytes, BytesMut};
-use log::trace;
-use retty::transport::Transmit;
+use log::{info, trace};
+use retty::transport::{Transmit, TransportContext};
 use std::collections::VecDeque;
 use std::time::Instant;
-use crate::session::remote_track::RemoteTrackOnObjectFragment;
 
 pub enum StreamEventIn {
     ResetStreamReceived(u64),
@@ -20,6 +23,11 @@ pub enum StreamEventIn {
 
 pub enum StreamEventOut {
     RemoteTrackOnObjectFragment(RemoteTrackOnObjectFragment),
+
+    SessionEstablished(Option<Role>, Option<String>),
+    SessionTerminated,
+    SessionDeleted,
+    IncomingAnnounce,
 }
 
 pub struct StreamMessage {
@@ -32,6 +40,7 @@ pub struct Stream {
     // stream or a data stream yet".
     stream_id: StreamId,
     is_control_stream: Option<bool>,
+    transport: TransportContext,
     partial_object: Option<BytesMut>,
     parser: MessageParser,
     session_parameters: SessionParameters,
@@ -46,10 +55,12 @@ impl Stream {
         session_parameters: SessionParameters,
         stream_id: StreamId,
         is_control_stream: Option<bool>,
+        transport: TransportContext,
     ) -> Self {
         Self {
             stream_id,
             is_control_stream,
+            transport,
             partial_object: None,
             parser: MessageParser::new(session_parameters.use_web_transport),
             session_parameters,
@@ -64,31 +75,47 @@ impl Stream {
         self.session_parameters.perspective
     }
 
-    fn on_object_message(&mut self, object_header: ObjectHeader, mut payload: Bytes, fin: bool) -> Result<()> {
+    fn on_object_message(
+        &mut self,
+        object_header: ObjectHeader,
+        mut payload: Bytes,
+        fin: bool,
+    ) -> Result<()> {
         if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
             if is_control_stream {
-                return Err(Error::ErrParseError(ParserErrorCode::ProtocolViolation,
-                                                "Received OBJECT message on control stream".to_string()));
+                return Err(Error::ErrStreamError(
+                    ErrorCode::ProtocolViolation,
+                    "Received OBJECT message on control stream".to_string(),
+                ));
             }
         }
-        trace!("{}", format!("{:?} Received OBJECT message on stream {} for subscribe_id {} for
+        trace!(
+            "{}",
+            format!(
+                "{:?} Received OBJECT message on stream {} for subscribe_id {} for
            track alias {} with sequence {}:{} send_order {} forwarding_preference {:?} length {}
            explicit length {} {}",
-           self.session_parameters.perspective,
-           self.stream_id,
-           object_header.subscribe_id,
-           object_header.track_alias,
-           object_header.group_id,
-           object_header.object_id,
-           object_header.object_send_order,
-           object_header.object_forwarding_preference,
-           payload.len(),
-           if let Some(&payload_length) = object_header.object_payload_length.as_ref() { payload_length as i64 } else {-1},
-           if fin { "F"} else {""},
-           ));
+                self.session_parameters.perspective,
+                self.stream_id,
+                object_header.subscribe_id,
+                object_header.track_alias,
+                object_header.group_id,
+                object_header.object_id,
+                object_header.object_send_order,
+                object_header.object_forwarding_preference,
+                payload.len(),
+                if let Some(&payload_length) = object_header.object_payload_length.as_ref() {
+                    payload_length as i64
+                } else {
+                    -1
+                },
+                if fin { "F" } else { "" },
+            )
+        );
 
         if !self.session_parameters.deliver_partial_objects {
-            if !fin {  // Buffer partial object.
+            if !fin {
+                // Buffer partial object.
                 if self.partial_object.is_none() {
                     self.partial_object = Some(BytesMut::new());
                 }
@@ -97,17 +124,75 @@ impl Stream {
                 }
                 return Ok(());
             }
-            if let Some(mut partial_object) = self.partial_object.take() {  // Completes the object
+            if let Some(mut partial_object) = self.partial_object.take() {
+                // Completes the object
                 partial_object.put(payload);
                 payload = partial_object.freeze();
             }
         }
-        self.eouts.push_back(StreamEventOut::RemoteTrackOnObjectFragment(RemoteTrackOnObjectFragment {
-            object_header,
-            payload,
-            fin,
-        }));
+        self.eouts
+            .push_back(StreamEventOut::RemoteTrackOnObjectFragment(
+                RemoteTrackOnObjectFragment {
+                    object_header,
+                    payload,
+                    fin,
+                },
+            ));
 
+        Ok(())
+    }
+
+    fn on_client_setup_message(&mut self, client_setup: ClientSetup) -> Result<()> {
+        if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
+            if !is_control_stream {
+                return Err(Error::ErrStreamError(
+                    ErrorCode::ProtocolViolation,
+                    "Received SETUP on non-control stream".to_string(),
+                ));
+            }
+        } else {
+            self.is_control_stream = Some(true);
+        }
+        if self.perspective() == Perspective::Client {
+            return Err(Error::ErrStreamError(
+                ErrorCode::ProtocolViolation,
+                "Received CLIENT_SETUP from server".to_string(),
+            ));
+        }
+        if !client_setup
+            .supported_versions
+            .contains(&self.session_parameters.version)
+        {
+            return Err(Error::ErrStreamError(
+                ErrorCode::ProtocolViolation,
+                format!(
+                    "Version mismatch: expected {:?}",
+                    self.session_parameters.version
+                ),
+            ));
+        }
+        info!("{:?} Received the SETUP message", self.perspective());
+        if self.session_parameters.perspective == Perspective::Server {
+            let response = ServerSetup {
+                supported_version: self.session_parameters.version,
+                role: Some(Role::PubSub),
+            };
+            let mut message = BytesMut::new();
+            MessageFramer::serialize_control_message(
+                ControlMessage::ServerSetup(response),
+                &mut message,
+            )?;
+            self.handle_write(Transmit {
+                now: Instant::now(),
+                transport: self.transport,
+                message: StreamMessage { message, fin: true },
+            })?;
+            info!("{:?} Sent the SETUP message", self.perspective());
+        }
+        self.eouts.push_back(StreamEventOut::SessionEstablished(
+            client_setup.role,
+            client_setup.path,
+        ));
         Ok(())
     }
 }
@@ -145,8 +230,8 @@ impl Handler for Stream {
             StreamEventIn::ResetStreamReceived(error_code) => {
                 if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
                     if is_control_stream {
-                        return Err(Error::ErrParseError(
-                            ParserErrorCode::ProtocolViolation,
+                        return Err(Error::ErrStreamError(
+                            ErrorCode::ProtocolViolation,
                             format!("Control stream reset with error code {}", error_code),
                         ));
                     }
@@ -156,28 +241,24 @@ impl Handler for Stream {
             StreamEventIn::StopSendingReceived(error_code) => {
                 if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
                     if is_control_stream {
-                        return Err(Error::ErrParseError(
-                            ParserErrorCode::ProtocolViolation,
+                        return Err(Error::ErrStreamError(
+                            ErrorCode::ProtocolViolation,
                             format!("Control stream reset with error code {}", error_code),
                         ));
                     }
                 }
                 Ok(())
             }
-            StreamEventIn::WriteSideInDataRecvState => {
-                Ok(())
-            }
+            StreamEventIn::WriteSideInDataRecvState => Ok(()),
             StreamEventIn::MessageParserEvent(message_parser_event) => match message_parser_event {
-                MessageParserEvent::ParsingError(error_code, reason) => {
-                    Err(Error::ErrParseError(
-                        error_code,
-                        format!("Parse error: {}", reason),
-                    ))
-                }
+                MessageParserEvent::ParsingError(error_code, reason) => Err(Error::ErrStreamError(
+                    error_code,
+                    format!("Parse error: {}", reason),
+                )),
                 MessageParserEvent::ObjectMessage(object_header, payload, fin) => {
                     self.on_object_message(object_header, payload, fin)
                 }
-                MessageParserEvent::ControlMessage(control_message) => {
+                MessageParserEvent::ControlMessage(_control_message) => {
                     /*match control_message {
                         ControlMessage::SubscribeUpdate(subscribe_update) => {}
                         ControlMessage::Subscribe(subscribe) => {}
@@ -198,7 +279,7 @@ impl Handler for Stream {
                     }*/
                     Ok(())
                 }
-            }
+            },
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::message::message_parser::ParserErrorCode;
+use crate::message::message_parser::ErrorCode;
 use crate::message::FullSequence;
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Parameters, Serializer};
@@ -25,7 +25,7 @@ impl Deserializer for SubscribeUpdate {
         let end = if end.group_id == 0 {
             if end.object_id > 0 {
                 return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "SUBSCRIBE_UPDATE has end_object but no end_group".to_string(),
                 ));
             }
@@ -45,12 +45,12 @@ impl Deserializer for SubscribeUpdate {
 
             if end.group_id < start.group_id {
                 return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "End group is less than start group".to_string(),
                 ));
             } else if end.group_id == start.group_id && end.object_id < start.object_id {
                 return Err(Error::ErrParseError(
-                    ParserErrorCode::ProtocolViolation,
+                    ErrorCode::ProtocolViolation,
                     "End object comes before start object".to_string(),
                 ));
             }
@@ -74,7 +74,7 @@ impl Deserializer for SubscribeUpdate {
             if key == ParameterKey::AuthorizationInfo as u64 {
                 if authorization_info.is_some() {
                     return Err(Error::ErrParseError(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "AUTHORIZATION_INFO parameter appears twice in SUBSCRIBE_UPDATE"
                             .to_string(),
                     ));

@@ -1,4 +1,4 @@
-use crate::message::message_parser::ParserErrorCode;
+use crate::message::message_parser::ErrorCode;
 use crate::serde::parameters::ParameterKey;
 use crate::{Deserializer, Error, Parameters, Result, Serializer};
 use bytes::{Buf, BufMut};
@@ -29,7 +29,7 @@ impl Deserializer for Announce {
             if key == ParameterKey::AuthorizationInfo as u64 {
                 if authorization_info.is_some() {
                     return Err(Error::ErrParseError(
-                        ParserErrorCode::ProtocolViolation,
+                        ErrorCode::ProtocolViolation,
                         "AUTHORIZATION_INFO parameter appears twice in ANNOUNCE".to_string(),
                     ));
                 }
