@@ -59,6 +59,7 @@ impl RemoteTrack {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::Result;
 
     struct RemoteTrackTest {
         track: RemoteTrack,
@@ -76,7 +77,7 @@ mod test {
     }
 
     #[test]
-    fn test_remote_track_test_queries() -> crate::Result<()> {
+    fn test_remote_track_test_queries() -> Result<()> {
         let track = &mut RemoteTrackTest::new().track;
         assert_eq!(
             track.full_track_name(),
@@ -87,7 +88,7 @@ mod test {
     }
 
     #[test]
-    fn test_remote_track_test_update_forwarding_preference() -> crate::Result<()> {
+    fn test_remote_track_test_update_forwarding_preference() -> Result<()> {
         let track = &mut RemoteTrackTest::new().track;
         assert!(track.check_forwarding_preference(ObjectForwardingPreference::Object));
         assert!(track.check_forwarding_preference(ObjectForwardingPreference::Object));

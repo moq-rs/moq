@@ -1,6 +1,6 @@
 use crate::message::object::{ObjectForwardingPreference, ObjectStatus};
 use crate::message::FullSequence;
-use crate::StreamId;
+use crate::{Error, Result, StreamId};
 use log::error;
 use std::collections::HashMap;
 
@@ -75,26 +75,25 @@ impl SubscribeWindow {
 
     /// Records what stream is being used for a track, group, or object depending
     /// on |forwarding_preference|. Triggers QUIC_BUG if already assigned.
-    pub fn add_stream(&mut self, group_id: u64, object_id: u64, stream_id: StreamId) {
+    pub fn add_stream(&mut self, group_id: u64, object_id: u64, stream_id: StreamId) -> Result<()> {
         if !self.in_window(FullSequence {
             group_id,
             object_id,
         }) {
-            return;
+            return Ok(());
         }
         let index = self.sequence_to_index(FullSequence {
             group_id,
             object_id,
         });
         if self.forwarding_preference == ObjectForwardingPreference::Datagram {
-            error!("Adding a stream for datagram");
-            return;
+            return Err(Error::ErrOther("Adding a stream for datagram".to_string()));
         }
         if self.send_streams.contains_key(&index) {
-            error!("Stream already added");
-            return;
+            return Err(Error::ErrOther("Stream already added".to_string()));
         }
         self.send_streams.insert(index, stream_id);
+        Ok(())
     }
 
     pub fn remove_stream(&mut self, group_id: u64, object_id: u64) {
@@ -267,5 +266,347 @@ impl SubscribeWindows {
 
     pub fn get_window(&self, subscribe_id: u64) -> Option<&SubscribeWindow> {
         self.windows.get(&subscribe_id)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::Result;
+
+    struct SubscribeWindowTest {
+        subscribe_id: u64,
+        right_edge: FullSequence,
+        start: FullSequence,
+        end: FullSequence,
+    }
+
+    impl SubscribeWindowTest {
+        fn new() -> Self {
+            Self {
+                subscribe_id: 2,
+                right_edge: FullSequence::new(4, 5),
+                start: FullSequence::new(4, 0),
+                end: FullSequence::new(5, 5),
+            }
+        }
+    }
+
+    #[test]
+    fn test_subscribe_window_test_queries() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert_eq!(window.subscribe_id(), 2);
+        assert!(window.in_window(FullSequence::new(4, 0)));
+        assert!(window.in_window(FullSequence::new(5, 5)));
+        assert!(!window.in_window(FullSequence::new(5, 6)));
+        assert!(!window.in_window(FullSequence::new(6, 0)));
+        assert!(!window.in_window(FullSequence::new(3, 12)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_add_query_remove_stream_id_track() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Track,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert!(window.add_stream(4, 0, 2).is_ok());
+        assert_eq!(
+            Error::ErrOther("Stream already added".to_string()),
+            window.add_stream(5, 2, 6).unwrap_err()
+        );
+        assert_eq!(
+            window.get_stream_for_sequence(FullSequence::new(5, 2)),
+            Some(2).as_ref()
+        );
+        window.remove_stream(7, 2);
+        assert!(!window
+            .get_stream_for_sequence(FullSequence::new(4, 0))
+            .is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_add_query_remove_stream_id_group() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Group,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert!(window.add_stream(4, 0, 2).is_ok());
+        assert!(!window
+            .get_stream_for_sequence(FullSequence::new(5, 0))
+            .is_some());
+        assert!(window.add_stream(5, 2, 6).is_ok());
+        assert_eq!(
+            Error::ErrOther("Stream already added".to_string()),
+            window.add_stream(5, 3, 6).unwrap_err()
+        );
+        assert_eq!(
+            window.get_stream_for_sequence(FullSequence::new(4, 1)),
+            Some(2).as_ref()
+        );
+        assert_eq!(
+            window.get_stream_for_sequence(FullSequence::new(5, 0)),
+            Some(6).as_ref()
+        );
+        window.remove_stream(5, 1);
+        assert!(!window
+            .get_stream_for_sequence(FullSequence::new(5, 2))
+            .is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_add_query_remove_stream_id_object() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert!(window.add_stream(4, 0, 2).is_ok());
+        assert!(window.add_stream(4, 1, 6).is_ok());
+        assert!(window.add_stream(4, 2, 10).is_ok());
+        assert_eq!(
+            window.add_stream(4, 2, 14).unwrap_err(),
+            Error::ErrOther("Stream already added".to_string())
+        );
+        assert_eq!(
+            window.get_stream_for_sequence(FullSequence::new(4, 0)),
+            Some(2).as_ref()
+        );
+        assert_eq!(
+            window.get_stream_for_sequence(FullSequence::new(4, 2)),
+            Some(10).as_ref()
+        );
+        assert!(!window
+            .get_stream_for_sequence(FullSequence::new(4, 4))
+            .is_some());
+        assert!(!window
+            .get_stream_for_sequence(FullSequence::new(5, 0))
+            .is_some());
+        window.remove_stream(4, 2);
+        assert!(!window
+            .get_stream_for_sequence(FullSequence::new(4, 2))
+            .is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_add_query_remove_stream_id_datagram() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Datagram,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert_eq!(
+            window.add_stream(4, 0, 2).unwrap_err(),
+            Error::ErrOther("Adding a stream for datagram".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_on_object_sent() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert!(!window.largest_delivered().is_some());
+        assert!(!window.on_object_sent(FullSequence::new(4, 1), ObjectStatus::Normal));
+        assert!(window.largest_delivered().is_some());
+        assert_eq!(window.largest_delivered().unwrap(), FullSequence::new(4, 1));
+        assert!(!window.on_object_sent(FullSequence::new(4, 2), ObjectStatus::Normal));
+        assert_eq!(window.largest_delivered().unwrap(), FullSequence::new(4, 2));
+        assert!(!window.on_object_sent(FullSequence::new(4, 0), ObjectStatus::Normal));
+        assert_eq!(window.largest_delivered().unwrap(), FullSequence::new(4, 2));
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_all_objects_unpublished_at_start() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            FullSequence::new(0, 0),
+            FullSequence::new(0, 0),
+            Some(FullSequence::new(0, 1)),
+        );
+        assert!(!window.on_object_sent(FullSequence::new(0, 0), ObjectStatus::Normal));
+        assert!(window.on_object_sent(FullSequence::new(0, 1), ObjectStatus::Normal));
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_all_objects_published_at_start() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            FullSequence::new(4, 0),
+            FullSequence::new(0, 0),
+            Some(FullSequence::new(0, 1)),
+        );
+        assert!(!window.on_object_sent(FullSequence::new(0, 0), ObjectStatus::Normal));
+        assert!(window.on_object_sent(FullSequence::new(0, 1), ObjectStatus::Normal));
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_some_objects_unpublished_at_start() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            FullSequence::new(0, 1),
+            FullSequence::new(0, 0),
+            Some(FullSequence::new(0, 1)),
+        );
+        assert!(!window.on_object_sent(FullSequence::new(0, 0), ObjectStatus::Normal));
+        assert!(window.on_object_sent(FullSequence::new(0, 1), ObjectStatus::Normal));
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_update_start_end() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            test.right_edge,
+            test.start,
+            Some(test.end),
+        );
+        assert!(window.update_start_end(
+            test.start.next(),
+            Some(FullSequence::new(test.end.group_id, test.end.object_id - 1)),
+        ));
+        assert!(!window.in_window(FullSequence::new(test.start.group_id, test.start.object_id)));
+        assert!(!window.in_window(FullSequence::new(test.end.group_id, test.end.object_id)));
+        assert!(!window.update_start_end(
+            test.start,
+            Some(FullSequence::new(test.end.group_id, test.end.object_id - 1)),
+        ));
+        assert!(!window.update_start_end(test.start.next(), Some(test.end)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_subscribe_window_test_update_start_end_open_ended() -> Result<()> {
+        let test = SubscribeWindowTest::new();
+        let mut window = SubscribeWindow::new(
+            test.subscribe_id,
+            ObjectForwardingPreference::Object,
+            test.right_edge,
+            test.start,
+            None,
+        );
+        assert!(window.update_start_end(test.start, Some(test.end)));
+        assert!(!window.in_window(test.end.next()));
+        assert!(!window.update_start_end(test.start, None));
+        Ok(())
+    }
+
+    struct SubscribeWindowsTest {
+        windows: SubscribeWindows,
+    }
+
+    impl SubscribeWindowsTest {
+        fn new() -> Self {
+            Self {
+                windows: SubscribeWindows::new(ObjectForwardingPreference::Object),
+            }
+        }
+    }
+
+    #[test]
+    fn test_moqt_subscribe_windows_test_is_empty() -> Result<()> {
+        let windows = &mut SubscribeWindowsTest::new().windows;
+        assert!(windows.is_empty());
+        windows.add_window(0, FullSequence::new(2, 1), FullSequence::new(1, 3), None);
+        assert!(!windows.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_moqt_subscribe_windows_test_is_subscribed() -> Result<()> {
+        let windows = &mut SubscribeWindowsTest::new().windows;
+        assert!(windows.is_empty());
+        // The first two windows overlap; the third is open-ended.
+        windows.add_window(
+            0,
+            FullSequence::new(0, 0),
+            FullSequence::new(1, 0),
+            Some(FullSequence::new(3, 9)),
+        );
+        windows.add_window(
+            1,
+            FullSequence::new(0, 0),
+            FullSequence::new(2, 4),
+            Some(FullSequence::new(4, 3)),
+        );
+        windows.add_window(2, FullSequence::new(0, 0), FullSequence::new(10, 0), None);
+        assert!(!windows.is_empty());
+        assert!(windows
+            .sequence_is_subscribed(FullSequence::new(0, 8))
+            .is_empty());
+        let mut hits = windows.sequence_is_subscribed(FullSequence::new(1, 0));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].subscribe_id(), 0);
+        assert!(windows
+            .sequence_is_subscribed(FullSequence::new(4, 4))
+            .is_empty());
+        assert!(windows
+            .sequence_is_subscribed(FullSequence::new(8, 3))
+            .is_empty());
+        hits = windows.sequence_is_subscribed(FullSequence::new(100, 7));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].subscribe_id(), 2);
+        hits = windows.sequence_is_subscribed(FullSequence::new(3, 0));
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].subscribe_id() + hits[1].subscribe_id(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_moqt_subscribe_windows_test_add_get_remove_window() -> Result<()> {
+        let windows = &mut SubscribeWindowsTest::new().windows;
+        windows.add_window(
+            0,
+            FullSequence::new(2, 5),
+            FullSequence::new(1, 0),
+            Some(FullSequence::new(3, 9)),
+        );
+        let window = windows.get_window(0).unwrap();
+        assert_eq!(window.subscribe_id(), 0);
+        assert_eq!(windows.get_window(1), None);
+        windows.remove_window(0);
+        assert_eq!(windows.get_window(0), None);
+        Ok(())
     }
 }

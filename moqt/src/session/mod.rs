@@ -14,9 +14,6 @@ mod session_parameters;
 mod stream;
 mod subscribe_window;
 
-#[cfg(test)]
-mod subscribe_window_test;
-
 // If |error_message| is none, the ANNOUNCE was successful.
 pub type OutgoingAnnounceCallback = fn(track_namespace: String, error: Option<AnnounceErrorReason>);
 

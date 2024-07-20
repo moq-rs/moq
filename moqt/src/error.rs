@@ -41,6 +41,8 @@ pub enum Error {
     ErrParseError(ParserErrorCode, String),
     #[error("frame error with reason: {0}")]
     ErrFrameError(String),
+    #[error("{0}")]
+    ErrOther(String),
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),
