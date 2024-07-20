@@ -55,3 +55,43 @@ impl RemoteTrack {
         true
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct RemoteTrackTest {
+        track: RemoteTrack,
+    }
+
+    impl RemoteTrackTest {
+        fn new() -> Self {
+            Self {
+                track: RemoteTrack::new(
+                    FullTrackName::new("foo".to_string(), "bar".to_string()),
+                    5,
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_remote_track_test_queries() -> crate::Result<()> {
+        let track = &mut RemoteTrackTest::new().track;
+        assert_eq!(
+            track.full_track_name(),
+            &FullTrackName::new("foo".to_string(), "bar".to_string())
+        );
+        assert_eq!(track.track_alias(), 5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_remote_track_test_update_forwarding_preference() -> crate::Result<()> {
+        let track = &mut RemoteTrackTest::new().track;
+        assert!(track.check_forwarding_preference(ObjectForwardingPreference::Object));
+        assert!(track.check_forwarding_preference(ObjectForwardingPreference::Object));
+        assert!(!track.check_forwarding_preference(ObjectForwardingPreference::Datagram));
+        Ok(())
+    }
+}
