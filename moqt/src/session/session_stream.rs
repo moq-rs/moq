@@ -1,9 +1,23 @@
 use crate::handler::Handler;
+use crate::message::announce::Announce;
+use crate::message::announce_cancel::AnnounceCancel;
+use crate::message::announce_error::AnnounceError;
+use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
+use crate::message::go_away::GoAway;
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_parser::{ErrorCode, MessageParser, MessageParserEvent};
 use crate::message::object::ObjectHeader;
 use crate::message::server_setup::ServerSetup;
+use crate::message::subscribe::Subscribe;
+use crate::message::subscribe_done::SubscribeDone;
+use crate::message::subscribe_error::SubscribeError;
+use crate::message::subscribe_ok::SubscribeOk;
+use crate::message::subscribe_update::SubscribeUpdate;
+use crate::message::track_status::TrackStatus;
+use crate::message::track_status_request::TrackStatusRequest;
+use crate::message::unannounce::UnAnnounce;
+use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, Role};
 use crate::session::remote_track::RemoteTrackOnObjectFragment;
 use crate::session::session_parameters::{Perspective, SessionParameters};
@@ -73,6 +87,24 @@ impl Stream {
 
     pub fn perspective(&self) -> Perspective {
         self.session_parameters.perspective
+    }
+
+    fn check_if_is_control_stream(&self, message_name: &str) -> Result<()> {
+        if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
+            if !is_control_stream {
+                return Err(Error::ErrStreamError(
+                    ErrorCode::ProtocolViolation,
+                    format!("Received {} on non-control stream", message_name),
+                ));
+            }
+        } else {
+            return Err(Error::ErrStreamError(
+                ErrorCode::ProtocolViolation,
+                format!("Received {} on first message", message_name),
+            ));
+        }
+
+        Ok(())
     }
 
     fn on_object_message(
@@ -147,7 +179,7 @@ impl Stream {
             if !is_control_stream {
                 return Err(Error::ErrStreamError(
                     ErrorCode::ProtocolViolation,
-                    "Received SETUP on non-control stream".to_string(),
+                    "Received CLIENT_SETUP on non-control stream".to_string(),
                 ));
             }
         } else {
@@ -171,7 +203,7 @@ impl Stream {
                 ),
             ));
         }
-        info!("{:?} Received the SETUP message", self.perspective());
+        info!("{:?} Received the CLIENT_SETUP message", self.perspective());
         if self.session_parameters.perspective == Perspective::Server {
             let response = ServerSetup {
                 supported_version: self.session_parameters.version,
@@ -187,12 +219,133 @@ impl Stream {
                 transport: self.transport,
                 message: StreamMessage { message, fin: true },
             })?;
-            info!("{:?} Sent the SETUP message", self.perspective());
+            info!("{:?} Sent the SERVER_SETUP message", self.perspective());
         }
         self.eouts.push_back(StreamEventOut::SessionEstablished(
             client_setup.role,
             client_setup.path,
         ));
+        Ok(())
+    }
+
+    fn on_server_setup_message(&mut self, server_setup: ServerSetup) -> Result<()> {
+        if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
+            if !is_control_stream {
+                return Err(Error::ErrStreamError(
+                    ErrorCode::ProtocolViolation,
+                    "Received SERVER_SETUP on non-control stream".to_string(),
+                ));
+            }
+        } else {
+            self.is_control_stream = Some(true);
+        }
+
+        if self.session_parameters.perspective == Perspective::Server {
+            return Err(Error::ErrStreamError(
+                ErrorCode::ProtocolViolation,
+                "Received SERVER_SETUP from client".to_string(),
+            ));
+        }
+        if server_setup.supported_version != self.session_parameters.version {
+            return Err(Error::ErrStreamError(
+                ErrorCode::ProtocolViolation,
+                format!(
+                    "Version mismatch: expected {:?}",
+                    self.session_parameters.version
+                ),
+            ));
+        }
+        info!("{:?} Received the SERVER_SETUP message", self.perspective());
+        self.eouts
+            .push_back(StreamEventOut::SessionEstablished(server_setup.role, None));
+
+        Ok(())
+    }
+
+    fn on_subscribe_message(&mut self, _subscribe: Subscribe) -> Result<()> {
+        self.check_if_is_control_stream("SUBSCRIBE")?;
+
+        Ok(())
+    }
+
+    fn on_subscribe_ok_message(&mut self, _subscribe_ok: SubscribeOk) -> Result<()> {
+        self.check_if_is_control_stream("SUBSCRIBE_OK")?;
+
+        Ok(())
+    }
+
+    fn on_subscribe_done_message(&mut self, _subscribe_done: SubscribeDone) -> Result<()> {
+        self.check_if_is_control_stream("SUBSCRIBE_DONE")?;
+
+        Ok(())
+    }
+
+    fn on_subscribe_error_message(&mut self, _subscribe_error: SubscribeError) -> Result<()> {
+        self.check_if_is_control_stream("SUBSCRIBE_ERROR")?;
+
+        Ok(())
+    }
+
+    fn on_subscribe_update_message(&mut self, _subscribe_update: SubscribeUpdate) -> Result<()> {
+        self.check_if_is_control_stream("SUBSCRIBE_UPDATE")?;
+
+        Ok(())
+    }
+
+    fn on_unsubscribe_message(&mut self, _unsubscribe: UnSubscribe) -> Result<()> {
+        self.check_if_is_control_stream("UNSUBSCRIBE")?;
+
+        Ok(())
+    }
+
+    fn on_announce_message(&mut self, _announce: Announce) -> Result<()> {
+        self.check_if_is_control_stream("ANNOUNCE")?;
+
+        Ok(())
+    }
+
+    fn on_announce_ok_message(&mut self, _announcee_ok: AnnounceOk) -> Result<()> {
+        self.check_if_is_control_stream("ANNOUNCE_OK")?;
+
+        Ok(())
+    }
+
+    fn on_announce_error_message(&mut self, _announce_error: AnnounceError) -> Result<()> {
+        self.check_if_is_control_stream("ANNOUNCE_ERROR")?;
+
+        Ok(())
+    }
+
+    fn on_announce_cancel_message(&mut self, _announce_cancel: AnnounceCancel) -> Result<()> {
+        self.check_if_is_control_stream("ANNOUNCE_CANCEL")?;
+
+        Ok(())
+    }
+
+    fn on_unannounce_message(&mut self, _unannounce: UnAnnounce) -> Result<()> {
+        self.check_if_is_control_stream("UNANNOUNCE")?;
+
+        Ok(())
+    }
+
+    fn on_track_status_request_message(
+        &mut self,
+        _track_status_request: TrackStatusRequest,
+    ) -> Result<()> {
+        self.check_if_is_control_stream("TRACK_STATUS_REQUEST")?;
+
+        Ok(())
+    }
+
+    fn on_track_status_message(&mut self, _track_status: TrackStatus) -> Result<()> {
+        self.check_if_is_control_stream("TRACK_STATUS")?;
+
+        Ok(())
+    }
+
+    fn on_go_away_message(&mut self, _go_away: GoAway) -> Result<()> {
+        self.check_if_is_control_stream("GO_AWAY")?;
+
         Ok(())
     }
 }
@@ -258,27 +411,50 @@ impl Handler for Stream {
                 MessageParserEvent::ObjectMessage(object_header, payload, fin) => {
                     self.on_object_message(object_header, payload, fin)
                 }
-                MessageParserEvent::ControlMessage(_control_message) => {
-                    /*match control_message {
-                        ControlMessage::SubscribeUpdate(subscribe_update) => {}
-                        ControlMessage::Subscribe(subscribe) => {}
-                        ControlMessage::SubscribeOk(subscribe_ok) => {}
-                        ControlMessage::SubscribeError(subscribe_error) => {}
-                        ControlMessage::Announce(announce) => {}
-                        ControlMessage::AnnounceOk(announce_ok) => {}
-                        ControlMessage::AnnounceError(announce_error) => {}
-                        ControlMessage::UnAnnounce(unannounce) => {}
-                        ControlMessage::UnSubscribe(unsubscribe) => {}
-                        ControlMessage::SubscribeDone(subscribe_done) => {}
-                        ControlMessage::AnnounceCancel(announce_cancel) => {}
-                        ControlMessage::TrackStatusRequest(track_status_request) => {}
-                        ControlMessage::TrackStatus(track_status) => {}
-                        ControlMessage::GoAway(go_away) => {}
-                        ControlMessage::ClientSetup(client_setup) => {}
-                        ControlMessage::ServerSetup(server_setup) => {}
-                    }*/
-                    Ok(())
-                }
+                MessageParserEvent::ControlMessage(control_message) => match control_message {
+                    ControlMessage::SubscribeUpdate(subscribe_update) => {
+                        self.on_subscribe_update_message(subscribe_update)
+                    }
+                    ControlMessage::Subscribe(subscribe) => self.on_subscribe_message(subscribe),
+                    ControlMessage::SubscribeOk(subscribe_ok) => {
+                        self.on_subscribe_ok_message(subscribe_ok)
+                    }
+                    ControlMessage::SubscribeError(subscribe_error) => {
+                        self.on_subscribe_error_message(subscribe_error)
+                    }
+                    ControlMessage::Announce(announce) => self.on_announce_message(announce),
+                    ControlMessage::AnnounceOk(announce_ok) => {
+                        self.on_announce_ok_message(announce_ok)
+                    }
+                    ControlMessage::AnnounceError(announce_error) => {
+                        self.on_announce_error_message(announce_error)
+                    }
+                    ControlMessage::UnAnnounce(unannounce) => {
+                        self.on_unannounce_message(unannounce)
+                    }
+                    ControlMessage::UnSubscribe(unsubscribe) => {
+                        self.on_unsubscribe_message(unsubscribe)
+                    }
+                    ControlMessage::SubscribeDone(subscribe_done) => {
+                        self.on_subscribe_done_message(subscribe_done)
+                    }
+                    ControlMessage::AnnounceCancel(announce_cancel) => {
+                        self.on_announce_cancel_message(announce_cancel)
+                    }
+                    ControlMessage::TrackStatusRequest(track_status_request) => {
+                        self.on_track_status_request_message(track_status_request)
+                    }
+                    ControlMessage::TrackStatus(track_status) => {
+                        self.on_track_status_message(track_status)
+                    }
+                    ControlMessage::GoAway(go_away) => self.on_go_away_message(go_away),
+                    ControlMessage::ClientSetup(client_setup) => {
+                        self.on_client_setup_message(client_setup)
+                    }
+                    ControlMessage::ServerSetup(server_setup) => {
+                        self.on_server_setup_message(server_setup)
+                    }
+                },
             },
         }
     }
