@@ -152,6 +152,15 @@ pub struct FullTrackName {
     pub track_name: String,
 }
 
+impl FullTrackName {
+    pub fn new(track_namespace: String, track_name: String) -> Self {
+        Self {
+            track_namespace,
+            track_name,
+        }
+    }
+}
+
 impl Deserializer for FullTrackName {
     fn deserialize<R: Buf>(r: &mut R) -> Result<(Self, usize)> {
         let (track_namespace, tnsl) = String::deserialize(r)?;
@@ -181,6 +190,13 @@ pub struct FullSequence {
 }
 
 impl FullSequence {
+    pub fn new(group_id: u64, object_id: u64) -> Self {
+        Self {
+            group_id,
+            object_id,
+        }
+    }
+
     pub fn next(&self) -> Self {
         Self {
             group_id: self.group_id,

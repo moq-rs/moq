@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 /// Classes to track subscriptions to local tracks: the sequence numbers
 /// subscribed, the streams involved, and the subscribe IDs.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct SubscribeWindow {
     subscribe_id: u64,
     start: FullSequence,

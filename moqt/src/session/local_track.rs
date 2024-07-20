@@ -204,3 +204,114 @@ impl LocalTrack {
         self.announce_canceled
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct LocalTrackTest {
+        track: LocalTrack,
+    }
+
+    impl LocalTrackTest {
+        fn new() -> Self {
+            Self {
+                track: LocalTrack::new(
+                    FullTrackName::new("foo".to_string(), "bar".to_string()),
+                    ObjectForwardingPreference::Track,
+                    Some(FullSequence::new(4, 1)),
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_local_track_test_queries() -> Result<()> {
+        let track = &mut LocalTrackTest::new().track;
+        assert_eq!(
+            track.full_track_name(),
+            &FullTrackName::new("foo".to_string(), "bar".to_string())
+        );
+        assert_eq!(track.track_alias(), None);
+        assert_eq!(track.next_sequence(), &FullSequence::new(4, 1));
+        track.sent_sequence(FullSequence::new(4, 0), ObjectStatus::Normal);
+        assert_eq!(track.next_sequence(), &FullSequence::new(4, 1)); // no change
+        track.sent_sequence(FullSequence::new(4, 1), ObjectStatus::Normal);
+        assert_eq!(track.next_sequence(), &FullSequence::new(4, 2));
+        track.sent_sequence(FullSequence::new(4, 2), ObjectStatus::EndOfGroup);
+        assert_eq!(track.next_sequence(), &FullSequence::new(5, 0));
+        assert!(!track.has_subscriber());
+        assert_eq!(
+            track.forwarding_preference(),
+            ObjectForwardingPreference::Track
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_local_track_test_set_track_alias() -> Result<()> {
+        let track = &mut LocalTrackTest::new().track;
+        assert_eq!(track.track_alias(), None);
+        track.set_track_alias(6);
+        assert_eq!(track.track_alias(), Some(6));
+        Ok(())
+    }
+
+    #[test]
+    fn test_local_track_test_add_get_delete_window() -> Result<()> {
+        let track = &mut LocalTrackTest::new().track;
+        track.add_window(0, FullSequence::new(4, 1), None, None);
+        assert_eq!(track.get_window(0).unwrap().subscribe_id(), 0);
+        assert_eq!(track.get_window(1), None);
+        track.delete_window(0);
+        assert_eq!(track.get_window(0), None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_local_track_test_group_subscription_uses_max_object_id() -> Result<()> {
+        let track = &mut LocalTrackTest::new().track;
+        // Populate max_object_ids_
+        track.sent_sequence(FullSequence::new(0, 0), ObjectStatus::EndOfGroup);
+        track.sent_sequence(FullSequence::new(1, 0), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(1, 1), ObjectStatus::EndOfGroup);
+        track.sent_sequence(FullSequence::new(2, 0), ObjectStatus::GroupDoesNotExist);
+        track.sent_sequence(FullSequence::new(3, 0), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(3, 1), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(3, 2), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(3, 3), ObjectStatus::EndOfGroup);
+        track.sent_sequence(FullSequence::new(4, 0), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(4, 1), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(4, 2), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(4, 3), ObjectStatus::Normal);
+        track.sent_sequence(FullSequence::new(4, 4), ObjectStatus::Normal);
+        assert_eq!(track.next_sequence(), &FullSequence::new(4, 5));
+        track.add_window(0, FullSequence::new(1, 1), Some(3), None);
+        let mut window = track.get_window(0).unwrap();
+        assert!(window.in_window(FullSequence::new(3, 3)));
+        assert!(!window.in_window(FullSequence::new(3, 4)));
+        // End on an empty group.
+        track.add_window(1, FullSequence::new(1, 1), Some(2), None);
+        window = track.get_window(1).unwrap();
+        assert!(window.in_window(FullSequence::new(1, 1)));
+        // End on an group in progress.
+        track.add_window(2, FullSequence::new(1, 1), Some(4), None);
+        window = track.get_window(2).unwrap();
+        assert!(window.in_window(FullSequence::new(4, 9)));
+        assert!(!window.in_window(FullSequence::new(5, 0)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_local_track_test_should_send() -> Result<()> {
+        let track = &mut LocalTrackTest::new().track;
+        track.add_window(0, FullSequence::new(4, 1), None, None);
+        assert!(track.has_subscriber());
+        assert!(track.should_send(FullSequence::new(3, 12)).is_empty());
+        assert!(track.should_send(FullSequence::new(4, 0)).is_empty());
+        assert_eq!(track.should_send(FullSequence::new(4, 1)).len(), 1);
+        assert_eq!(track.should_send(FullSequence::new(12, 0)).len(), 1);
+        Ok(())
+    }
+}
