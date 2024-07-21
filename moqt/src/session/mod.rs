@@ -1,21 +1,24 @@
 use crate::handler::Handler;
 use crate::message::announce_error::AnnounceErrorReason;
+use crate::message::client_setup::ClientSetup;
 use crate::message::object::ObjectForwardingPreference;
 use crate::message::subscribe::Subscribe;
-use crate::message::{FullTrackName, Role};
+use crate::message::{ControlMessage, FullTrackName, Role};
+use crate::session::config::{Config, Perspective};
 use crate::session::local_track::LocalTrack;
 use crate::session::remote_track::RemoteTrack;
-use crate::session::session_parameters::SessionParameters;
 use crate::Result;
 use crate::StreamId;
+use log::info;
 use retty::transport::Transmit;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+mod config;
+mod connection;
 mod local_track;
 mod remote_track;
-mod session_parameters;
-mod session_stream;
+mod stream;
 mod subscribe_window;
 
 // If |error_message| is none, the ANNOUNCE was successful.
@@ -33,7 +36,7 @@ pub struct ActiveSubscribe {
 }
 
 pub struct Session {
-    parameters: SessionParameters,
+    config: Config,
     control_stream: Option<StreamId>,
 
     // All the tracks the session is subscribed to, indexed by track_alias.
@@ -65,9 +68,9 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(parameters: SessionParameters) -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
-            parameters,
+            config,
             control_stream: None,
             remote_tracks: Default::default(),
             remote_track_aliases: Default::default(),
@@ -82,6 +85,8 @@ impl Session {
             peer_role: Default::default(),
         }
     }
+
+    fn send_control_message(&self, _control_message: ControlMessage) {}
 }
 
 impl Handler for Session {
@@ -93,7 +98,23 @@ impl Handler for Session {
     type Wout = ();
 
     fn transport_active(&mut self) -> Result<()> {
-        todo!()
+        info!("{:?} Underlying session ready", self.config.perspective);
+        if self.config.perspective == Perspective::Server {
+            return Ok(());
+        }
+
+        let mut setup = ClientSetup {
+            supported_versions: vec![self.config.version],
+            role: Some(Role::PubSub),
+            path: None,
+            uses_web_transport: self.config.use_web_transport,
+        };
+        if !self.config.use_web_transport {
+            setup.path = Some(self.config.path.clone());
+        }
+        self.send_control_message(ControlMessage::ClientSetup(setup));
+        info!("{:?} Send the SETUP message", self.config.perspective);
+        Ok(())
     }
 
     fn transport_inactive(&mut self) -> Result<()> {

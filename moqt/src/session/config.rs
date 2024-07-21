@@ -8,7 +8,7 @@ pub enum Perspective {
 }
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub struct SessionParameters {
+pub struct Config {
     pub version: Version,
     pub perspective: Perspective,
     pub use_web_transport: bool,

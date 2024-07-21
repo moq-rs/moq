@@ -19,8 +19,8 @@ use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, Role};
+use crate::session::config::Perspective;
 use crate::session::remote_track::RemoteTrackOnObjectFragment;
-use crate::session::session_parameters::Perspective;
 use crate::session::Session;
 use crate::{Error, Result, StreamId};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -77,7 +77,7 @@ impl<'a> Stream<'a> {
             is_control_stream,
             transport,
             partial_object: None,
-            parser: MessageParser::new(session.parameters.use_web_transport),
+            parser: MessageParser::new(session.config.use_web_transport),
             session,
 
             eouts: VecDeque::new(),
@@ -87,7 +87,7 @@ impl<'a> Stream<'a> {
     }
 
     pub fn perspective(&self) -> Perspective {
-        self.session.parameters.perspective
+        self.session.config.perspective
     }
 
     fn check_if_is_control_stream(&self, message_name: &str) -> Result<()> {
@@ -128,7 +128,7 @@ impl<'a> Stream<'a> {
                 "{:?} Received OBJECT message on stream {} for subscribe_id {} for
            track alias {} with sequence {}:{} send_order {} forwarding_preference {:?} length {}
            explicit length {} {}",
-                self.session.parameters.perspective,
+                self.session.config.perspective,
                 self.stream_id,
                 object_header.subscribe_id,
                 object_header.track_alias,
@@ -146,7 +146,7 @@ impl<'a> Stream<'a> {
             )
         );
 
-        if !self.session.parameters.deliver_partial_objects {
+        if !self.session.config.deliver_partial_objects {
             if !fin {
                 // Buffer partial object.
                 if self.partial_object.is_none() {
@@ -194,20 +194,20 @@ impl<'a> Stream<'a> {
         }
         if !client_setup
             .supported_versions
-            .contains(&self.session.parameters.version)
+            .contains(&self.session.config.version)
         {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 format!(
                     "Version mismatch: expected {:?}",
-                    self.session.parameters.version
+                    self.session.config.version
                 ),
             ));
         }
         info!("{:?} Received the CLIENT_SETUP message", self.perspective());
-        if self.session.parameters.perspective == Perspective::Server {
+        if self.session.config.perspective == Perspective::Server {
             let response = ServerSetup {
-                supported_version: self.session.parameters.version,
+                supported_version: self.session.config.version,
                 role: Some(Role::PubSub),
             };
             let mut message = BytesMut::new();
@@ -241,18 +241,18 @@ impl<'a> Stream<'a> {
             self.is_control_stream = Some(true);
         }
 
-        if self.session.parameters.perspective == Perspective::Server {
+        if self.session.config.perspective == Perspective::Server {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 "Received SERVER_SETUP from client".to_string(),
             ));
         }
-        if server_setup.supported_version != self.session.parameters.version {
+        if server_setup.supported_version != self.session.config.version {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 format!(
                     "Version mismatch: expected {:?}",
-                    self.session.parameters.version
+                    self.session.config.version
                 ),
             ));
         }
