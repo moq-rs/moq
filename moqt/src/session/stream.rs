@@ -19,7 +19,7 @@ use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, Role};
-use crate::session::config::Perspective;
+use crate::session::config::{Config, Perspective};
 use crate::session::remote_track::RemoteTrackOnObjectFragment;
 use crate::session::Session;
 use crate::{Error, Result, StreamId};
@@ -50,35 +50,34 @@ pub struct StreamMessage {
     pub fin: bool,
 }
 
-pub struct Stream<'a> {
-    // none means "incoming stream, and we don't know if it's the control
-    // stream or a data stream yet".
+pub(super) struct StreamState {
+    config: Config,
     stream_id: StreamId,
     is_control_stream: Option<bool>,
     transport: TransportContext,
     partial_object: Option<BytesMut>,
     parser: MessageParser,
-    session: &'a mut Session,
 
     eouts: VecDeque<StreamEventOut>,
     routs: VecDeque<Transmit<StreamMessage>>,
     wouts: VecDeque<Transmit<StreamMessage>>,
 }
 
-impl<'a> Stream<'a> {
+impl StreamState {
     pub fn new(
-        session: &'a mut Session,
+        config: Config,
         stream_id: StreamId,
         is_control_stream: Option<bool>,
+        use_web_transport: bool,
         transport: TransportContext,
     ) -> Self {
         Self {
+            config,
             stream_id,
             is_control_stream,
             transport,
             partial_object: None,
-            parser: MessageParser::new(session.config.use_web_transport),
-            session,
+            parser: MessageParser::new(use_web_transport),
 
             eouts: VecDeque::new(),
             routs: VecDeque::new(),
@@ -86,8 +85,8 @@ impl<'a> Stream<'a> {
         }
     }
 
-    pub fn perspective(&self) -> Perspective {
-        self.session.config.perspective
+    fn perspective(&self) -> Perspective {
+        self.config.perspective
     }
 
     fn check_if_is_control_stream(&self, message_name: &str) -> Result<()> {
@@ -128,7 +127,7 @@ impl<'a> Stream<'a> {
                 "{:?} Received OBJECT message on stream {} for subscribe_id {} for
            track alias {} with sequence {}:{} send_order {} forwarding_preference {:?} length {}
            explicit length {} {}",
-                self.session.config.perspective,
+                self.config.perspective,
                 self.stream_id,
                 object_header.subscribe_id,
                 object_header.track_alias,
@@ -146,7 +145,7 @@ impl<'a> Stream<'a> {
             )
         );
 
-        if !self.session.config.deliver_partial_objects {
+        if !self.config.deliver_partial_objects {
             if !fin {
                 // Buffer partial object.
                 if self.partial_object.is_none() {
@@ -194,20 +193,17 @@ impl<'a> Stream<'a> {
         }
         if !client_setup
             .supported_versions
-            .contains(&self.session.config.version)
+            .contains(&self.config.version)
         {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
-                format!(
-                    "Version mismatch: expected {:?}",
-                    self.session.config.version
-                ),
+                format!("Version mismatch: expected {:?}", self.config.version),
             ));
         }
         info!("{:?} Received the CLIENT_SETUP message", self.perspective());
-        if self.session.config.perspective == Perspective::Server {
+        if self.config.perspective == Perspective::Server {
             let response = ServerSetup {
-                supported_version: self.session.config.version,
+                supported_version: self.config.version,
                 role: Some(Role::PubSub),
             };
             let mut message = BytesMut::new();
@@ -215,11 +211,11 @@ impl<'a> Stream<'a> {
                 ControlMessage::ServerSetup(response),
                 &mut message,
             )?;
-            self.handle_write(Transmit {
+            self.wouts.push_back(Transmit {
                 now: Instant::now(),
                 transport: self.transport,
                 message: StreamMessage { message, fin: true },
-            })?;
+            });
             info!("{:?} Sent the SERVER_SETUP message", self.perspective());
         }
         self.eouts.push_back(StreamEventOut::SessionEstablished(
@@ -241,19 +237,16 @@ impl<'a> Stream<'a> {
             self.is_control_stream = Some(true);
         }
 
-        if self.session.config.perspective == Perspective::Server {
+        if self.config.perspective == Perspective::Server {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
                 "Received SERVER_SETUP from client".to_string(),
             ));
         }
-        if server_setup.supported_version != self.session.config.version {
+        if server_setup.supported_version != self.config.version {
             return Err(Error::ErrStreamError(
                 ErrorCode::ProtocolViolation,
-                format!(
-                    "Version mismatch: expected {:?}",
-                    self.session.config.version
-                ),
+                format!("Version mismatch: expected {:?}", self.config.version),
             ));
         }
         info!("{:?} Received the SERVER_SETUP message", self.perspective());
@@ -454,6 +447,20 @@ impl<'a> Stream<'a> {
     }
 }
 
+pub struct Stream<'a> {
+    pub(crate) stream_id: StreamId,
+    pub(crate) session: &'a mut Session,
+}
+
+impl<'a> Stream<'a> {
+    fn stream_state(&mut self) -> Result<&mut StreamState> {
+        self.session
+            .streams
+            .get_mut(&self.stream_id)
+            .ok_or(Error::ErrStreamClosed(self.stream_id))
+    }
+}
+
 impl<'a> Handler for Stream<'a> {
     type Ein = StreamEventIn;
     type Eout = StreamEventOut;
@@ -471,29 +478,35 @@ impl<'a> Handler for Stream<'a> {
     }
 
     fn handle_read(&mut self, msg: Transmit<Self::Rin>) -> Result<()> {
-        self.parser
+        let stream_state = self.stream_state()?;
+        stream_state
+            .parser
             .process_data(&mut &msg.message.message[..], msg.message.fin);
         Ok(())
     }
 
     fn poll_read(&mut self) -> Option<Transmit<Self::Rout>> {
-        self.routs.pop_front()
+        let stream_state = self.stream_state().ok()?;
+        stream_state.routs.pop_front()
     }
 
     fn handle_write(&mut self, msg: Transmit<Self::Win>) -> Result<()> {
-        self.wouts.push_back(msg);
+        let stream_state = self.stream_state()?;
+        stream_state.wouts.push_back(msg);
         Ok(())
     }
 
     fn poll_write(&mut self) -> Option<Transmit<Self::Wout>> {
-        self.wouts.pop_front()
+        let stream_state = self.stream_state().ok()?;
+        stream_state.wouts.pop_front()
     }
 
     /// Handles event
     fn handle_event(&mut self, evt: Self::Ein) -> Result<()> {
+        let stream_state = self.stream_state()?;
         match evt {
             StreamEventIn::ResetStreamReceived(error_code) => {
-                if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
+                if let Some(&is_control_stream) = stream_state.is_control_stream.as_ref() {
                     if is_control_stream {
                         return Err(Error::ErrStreamError(
                             ErrorCode::ProtocolViolation,
@@ -504,7 +517,7 @@ impl<'a> Handler for Stream<'a> {
                 Ok(())
             }
             StreamEventIn::StopSendingReceived(error_code) => {
-                if let Some(&is_control_stream) = self.is_control_stream.as_ref() {
+                if let Some(&is_control_stream) = stream_state.is_control_stream.as_ref() {
                     if is_control_stream {
                         return Err(Error::ErrStreamError(
                             ErrorCode::ProtocolViolation,
@@ -521,50 +534,54 @@ impl<'a> Handler for Stream<'a> {
                     format!("Parse error: {}", reason),
                 )),
                 MessageParserEvent::ObjectMessage(object_header, payload, fin) => {
-                    self.on_object_message(object_header, payload, fin)
+                    stream_state.on_object_message(object_header, payload, fin)
                 }
                 MessageParserEvent::ControlMessage(control_message) => match control_message {
                     ControlMessage::SubscribeUpdate(subscribe_update) => {
-                        self.on_subscribe_update_message(subscribe_update)
+                        stream_state.on_subscribe_update_message(subscribe_update)
                     }
-                    ControlMessage::Subscribe(subscribe) => self.on_subscribe_message(subscribe),
+                    ControlMessage::Subscribe(subscribe) => {
+                        stream_state.on_subscribe_message(subscribe)
+                    }
                     ControlMessage::SubscribeOk(subscribe_ok) => {
-                        self.on_subscribe_ok_message(subscribe_ok)
+                        stream_state.on_subscribe_ok_message(subscribe_ok)
                     }
                     ControlMessage::SubscribeError(subscribe_error) => {
-                        self.on_subscribe_error_message(subscribe_error)
+                        stream_state.on_subscribe_error_message(subscribe_error)
                     }
-                    ControlMessage::Announce(announce) => self.on_announce_message(announce),
+                    ControlMessage::Announce(announce) => {
+                        stream_state.on_announce_message(announce)
+                    }
                     ControlMessage::AnnounceOk(announce_ok) => {
-                        self.on_announce_ok_message(announce_ok)
+                        stream_state.on_announce_ok_message(announce_ok)
                     }
                     ControlMessage::AnnounceError(announce_error) => {
-                        self.on_announce_error_message(announce_error)
+                        stream_state.on_announce_error_message(announce_error)
                     }
                     ControlMessage::UnAnnounce(unannounce) => {
-                        self.on_unannounce_message(unannounce)
+                        stream_state.on_unannounce_message(unannounce)
                     }
                     ControlMessage::UnSubscribe(unsubscribe) => {
-                        self.on_unsubscribe_message(unsubscribe)
+                        stream_state.on_unsubscribe_message(unsubscribe)
                     }
                     ControlMessage::SubscribeDone(subscribe_done) => {
-                        self.on_subscribe_done_message(subscribe_done)
+                        stream_state.on_subscribe_done_message(subscribe_done)
                     }
                     ControlMessage::AnnounceCancel(announce_cancel) => {
-                        self.on_announce_cancel_message(announce_cancel)
+                        stream_state.on_announce_cancel_message(announce_cancel)
                     }
                     ControlMessage::TrackStatusRequest(track_status_request) => {
-                        self.on_track_status_request_message(track_status_request)
+                        stream_state.on_track_status_request_message(track_status_request)
                     }
                     ControlMessage::TrackStatus(track_status) => {
-                        self.on_track_status_message(track_status)
+                        stream_state.on_track_status_message(track_status)
                     }
-                    ControlMessage::GoAway(go_away) => self.on_go_away_message(go_away),
+                    ControlMessage::GoAway(go_away) => stream_state.on_go_away_message(go_away),
                     ControlMessage::ClientSetup(client_setup) => {
-                        self.on_client_setup_message(client_setup)
+                        stream_state.on_client_setup_message(client_setup)
                     }
                     ControlMessage::ServerSetup(server_setup) => {
-                        self.on_server_setup_message(server_setup)
+                        stream_state.on_server_setup_message(server_setup)
                     }
                 },
             },
@@ -573,7 +590,8 @@ impl<'a> Handler for Stream<'a> {
 
     /// Polls event
     fn poll_event(&mut self) -> Option<Self::Eout> {
-        self.eouts.pop_front()
+        let stream_state = self.stream_state().ok()?;
+        stream_state.eouts.pop_front()
     }
 
     /// Handles timeout

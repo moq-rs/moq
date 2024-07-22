@@ -1,6 +1,7 @@
 #![warn(rust_2018_idioms)]
 #![allow(dead_code)]
 
+mod connection;
 mod error;
 mod handler;
 mod message;

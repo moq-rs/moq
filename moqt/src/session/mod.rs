@@ -1,3 +1,4 @@
+use crate::connection::Connection;
 use crate::handler::Handler;
 use crate::message::announce_error::AnnounceErrorReason;
 use crate::message::client_setup::ClientSetup;
@@ -7,15 +8,15 @@ use crate::message::{ControlMessage, FullTrackName, Role};
 use crate::session::config::{Config, Perspective};
 use crate::session::local_track::LocalTrack;
 use crate::session::remote_track::RemoteTrack;
-use crate::Result;
+use crate::session::stream::{Stream, StreamState};
 use crate::StreamId;
+use crate::{Error, Result};
 use log::info;
 use retty::transport::Transmit;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 mod config;
-mod connection;
 mod local_track;
 mod remote_track;
 mod stream;
@@ -37,7 +38,9 @@ pub struct ActiveSubscribe {
 
 pub struct Session {
     config: Config,
-    control_stream: Option<StreamId>,
+    conn: Connection,
+    control_stream_id: Option<StreamId>,
+    streams: HashMap<StreamId, StreamState>,
 
     // All the tracks the session is subscribed to, indexed by track_alias.
     // Multiple subscribes to the same track are recorded in a single
@@ -68,10 +71,12 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, conn: Connection) -> Self {
         Self {
             config,
-            control_stream: None,
+            conn,
+            control_stream_id: None,
+            streams: HashMap::new(),
             remote_tracks: Default::default(),
             remote_track_aliases: Default::default(),
             next_remote_track_alias: 0,
@@ -83,6 +88,17 @@ impl Session {
             next_subscribe_id: 0,
             pending_outgoing_announces: Default::default(),
             peer_role: Default::default(),
+        }
+    }
+
+    fn stream(&mut self, stream_id: StreamId) -> Result<Stream<'_>> {
+        if !self.streams.contains_key(&stream_id) {
+            Err(Error::ErrStreamNotExisted(stream_id))
+        } else {
+            Ok(Stream {
+                stream_id,
+                session: self,
+            })
         }
     }
 
@@ -103,6 +119,7 @@ impl Handler for Session {
             return Ok(());
         }
 
+        self.control_stream_id = Some(self.conn.open_bi_stream()?);
         let mut setup = ClientSetup {
             supported_versions: vec![self.config.version],
             role: Some(Role::PubSub),
