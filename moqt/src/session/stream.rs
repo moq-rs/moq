@@ -68,16 +68,15 @@ impl StreamState {
         config: Config,
         stream_id: StreamId,
         is_control_stream: Option<bool>,
-        use_web_transport: bool,
         transport: TransportContext,
     ) -> Self {
         Self {
+            parser: MessageParser::new(config.use_web_transport),
             config,
             stream_id,
             is_control_stream,
             transport,
             partial_object: None,
-            parser: MessageParser::new(use_web_transport),
 
             eouts: VecDeque::new(),
             routs: VecDeque::new(),
@@ -104,6 +103,17 @@ impl StreamState {
             ));
         }
 
+        Ok(())
+    }
+
+    fn send_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
+        let mut message = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(control_message, &mut message)?;
+        self.wouts.push_back(Transmit {
+            now: Instant::now(),
+            transport: self.transport,
+            message: StreamMessage { message, fin: true },
+        });
         Ok(())
     }
 
@@ -457,7 +467,12 @@ impl<'a> Stream<'a> {
         self.session
             .streams
             .get_mut(&self.stream_id)
-            .ok_or(Error::ErrStreamClosed(self.stream_id))
+            .ok_or(Error::ErrStreamClosed)
+    }
+
+    pub(crate) fn send_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
+        let stream_state = self.stream_state()?;
+        stream_state.send_control_message(control_message)
     }
 }
 

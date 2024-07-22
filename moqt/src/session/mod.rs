@@ -93,7 +93,7 @@ impl Session {
 
     fn stream(&mut self, stream_id: StreamId) -> Result<Stream<'_>> {
         if !self.streams.contains_key(&stream_id) {
-            Err(Error::ErrStreamNotExisted(stream_id))
+            Err(Error::ErrStreamNotExisted)
         } else {
             Ok(Stream {
                 stream_id,
@@ -102,7 +102,18 @@ impl Session {
         }
     }
 
-    fn send_control_message(&self, _control_message: ControlMessage) {}
+    fn get_control_stream(&mut self) -> Result<Stream<'_>> {
+        if let Some(control_stream_id) = self.control_stream_id.as_ref() {
+            self.stream(*control_stream_id)
+        } else {
+            Err(Error::ErrStreamNotExisted)
+        }
+    }
+
+    fn send_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
+        let mut control_stream = self.get_control_stream()?;
+        control_stream.send_control_message(control_message)
+    }
 }
 
 impl Handler for Session {
@@ -119,19 +130,27 @@ impl Handler for Session {
             return Ok(());
         }
 
-        self.control_stream_id = Some(self.conn.open_bi_stream()?);
-        let mut setup = ClientSetup {
+        let control_stream_id = self.conn.open_bi_stream()?;
+        let control_stream = StreamState::new(
+            self.config.clone(),
+            control_stream_id,
+            Some(true),
+            self.conn.transport(),
+        );
+        self.streams.insert(control_stream_id, control_stream);
+        self.control_stream_id = Some(control_stream_id);
+        let mut client_setup = ClientSetup {
             supported_versions: vec![self.config.version],
             role: Some(Role::PubSub),
             path: None,
             uses_web_transport: self.config.use_web_transport,
         };
         if !self.config.use_web_transport {
-            setup.path = Some(self.config.path.clone());
+            client_setup.path = Some(self.config.path.clone());
         }
-        self.send_control_message(ControlMessage::ClientSetup(setup));
+
         info!("{:?} Send the SETUP message", self.config.perspective);
-        Ok(())
+        self.send_control_message(ControlMessage::ClientSetup(client_setup))
     }
 
     fn transport_inactive(&mut self) -> Result<()> {

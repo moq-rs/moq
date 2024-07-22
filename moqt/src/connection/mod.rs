@@ -1,4 +1,5 @@
 use crate::{Result, StreamId};
+use retty::transport::TransportContext;
 
 #[allow(clippy::upper_case_acronyms)]
 pub enum Connection {
@@ -7,6 +8,9 @@ pub enum Connection {
 }
 
 impl Connection {
+    pub fn transport(&self) -> TransportContext {
+        TransportContext::default()
+    }
     pub fn open_bi_stream(&mut self) -> Result<StreamId> {
         Ok(0)
     }

@@ -1,5 +1,4 @@
 use crate::message::message_parser::ErrorCode;
-use crate::StreamId;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
@@ -46,10 +45,10 @@ pub enum Error {
     ErrStreamError(ErrorCode, String),
     #[error("{0}")]
     ErrOther(String),
-    #[error("stream id {0} not exist")]
-    ErrStreamNotExisted(StreamId),
-    #[error("stream id {0} closed")]
-    ErrStreamClosed(StreamId),
+    #[error("stream not exist")]
+    ErrStreamNotExisted,
+    #[error("stream closed")]
+    ErrStreamClosed,
 
     #[error("invalid string")]
     ErrInvalidString(#[from] FromUtf8Error),
