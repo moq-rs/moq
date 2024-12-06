@@ -462,7 +462,7 @@ pub struct Stream<'a> {
     pub(crate) session: &'a mut Session,
 }
 
-impl<'a> Stream<'a> {
+impl Stream<'_> {
     fn stream_state(&mut self) -> Result<&mut StreamState> {
         self.session
             .streams
@@ -476,7 +476,7 @@ impl<'a> Stream<'a> {
     }
 }
 
-impl<'a> Handler for Stream<'a> {
+impl Handler for Stream<'_> {
     type Ein = StreamEventIn;
     type Eout = StreamEventOut;
     type Rin = StreamMessage;
