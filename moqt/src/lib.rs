@@ -5,8 +5,10 @@ mod connection;
 mod error;
 mod handler;
 mod message;
+mod moqt_priority;
 mod serde;
 mod session;
+pub mod webtransport;
 
 pub use error::{Error, Result};
 pub use serde::{parameters::Parameters, varint::VarInt, Deserializer, Serializer};
