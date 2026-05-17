@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 mod config;
-mod local_track;
+pub(crate) mod local_track;
 pub(crate) mod remote_track;
 mod stream;
 mod subscribe_window;

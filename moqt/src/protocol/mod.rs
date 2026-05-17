@@ -1,7 +1,7 @@
 use crate::message::client_setup::ClientSetup;
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_parser::{MessageParser, MessageParserEvent};
-use crate::message::object::ObjectHeader;
+use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
@@ -10,11 +10,12 @@ use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::subscribe_update::SubscribeUpdate;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, FilterType, FullSequence, FullTrackName, Role, Version};
+use crate::session::local_track::LocalTrack;
 use crate::session::remote_track::{RemoteTrack, RemoteTrackOnObjectFragment};
 use crate::{Result, StreamId};
 use bytes::{Bytes, BytesMut};
 use sansio::Protocol;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
@@ -74,7 +75,7 @@ struct Subscription {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct IncomingSubscribe {
-    subscription: Subscription,
+    message: Subscribe,
     accepted: bool,
 }
 
@@ -88,6 +89,12 @@ pub(crate) enum Command {
     Close {
         code: u64,
         reason: String,
+    },
+    RegisterLocalTrack {
+        track_namespace: String,
+        track_name: String,
+        forwarding_preference: ObjectForwardingPreference,
+        next_sequence: Option<FullSequence>,
     },
     Subscribe {
         track_namespace: String,
@@ -117,6 +124,15 @@ pub(crate) enum Command {
         status_code: u64,
         reason_phrase: String,
         final_group_object: Option<FullSequence>,
+    },
+    PublishObject {
+        track_namespace: String,
+        track_name: String,
+        group_id: u64,
+        object_id: u64,
+        send_order: u64,
+        status: ObjectStatus,
+        payload: Bytes,
     },
     Unsubscribe {
         subscribe_id: u64,
@@ -206,6 +222,9 @@ pub(crate) struct SessionCore {
     control_parser: Option<MessageParser>,
     remote_track_aliases: HashMap<FullTrackName, u64>,
     remote_tracks: HashMap<u64, RemoteTrack>,
+    local_tracks: HashMap<FullTrackName, LocalTrack>,
+    local_track_by_subscribe_id: HashMap<u64, FullTrackName>,
+    used_track_aliases: HashSet<u64>,
     pending_outgoing_subscribes: HashMap<u64, Subscription>,
     active_outgoing_subscribes: HashMap<u64, Subscription>,
     incoming_subscribes: HashMap<u64, IncomingSubscribe>,
@@ -226,6 +245,9 @@ impl SessionCore {
             control_parser: None,
             remote_track_aliases: HashMap::new(),
             remote_tracks: HashMap::new(),
+            local_tracks: HashMap::new(),
+            local_track_by_subscribe_id: HashMap::new(),
+            used_track_aliases: HashSet::new(),
             pending_outgoing_subscribes: HashMap::new(),
             active_outgoing_subscribes: HashMap::new(),
             incoming_subscribes: HashMap::new(),
@@ -431,6 +453,38 @@ impl SessionCore {
         self.on_object_message(0, object_header, payload, true);
     }
 
+    fn cleanup_incoming_subscription(&mut self, subscribe_id: u64) {
+        self.incoming_subscribes.remove(&subscribe_id);
+        if let Some(full_track_name) = self.local_track_by_subscribe_id.remove(&subscribe_id) {
+            if let Some(local_track) = self.local_tracks.get_mut(&full_track_name) {
+                local_track.delete_window(subscribe_id);
+            }
+        }
+    }
+
+    fn resolve_filter_window(
+        local_track: &LocalTrack,
+        filter_type: FilterType,
+    ) -> (FullSequence, Option<FullSequence>) {
+        match filter_type {
+            FilterType::AbsoluteStart(start) => (start, None),
+            FilterType::AbsoluteRange(start, end) => (start, Some(end)),
+            FilterType::LatestGroup => (
+                FullSequence::new(local_track.next_sequence().group_id, 0),
+                None,
+            ),
+            FilterType::LatestObject => {
+                let next = *local_track.next_sequence();
+                let start = if next.object_id > 0 {
+                    FullSequence::new(next.group_id, next.object_id - 1)
+                } else {
+                    next
+                };
+                (start, None)
+            }
+        }
+    }
+
     fn on_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
         match control_message {
             ControlMessage::ClientSetup(client_setup) => {
@@ -500,13 +554,7 @@ impl SessionCore {
                 self.incoming_subscribes.insert(
                     subscribe.subscribe_id,
                     IncomingSubscribe {
-                        subscription: Subscription {
-                            full_track_name: FullTrackName::new(
-                                subscribe.track_namespace.clone(),
-                                subscribe.track_name.clone(),
-                            ),
-                            track_alias: subscribe.track_alias,
-                        },
+                        message: subscribe.clone(),
                         accepted: false,
                     },
                 );
@@ -641,6 +689,14 @@ impl SessionCore {
                     ));
                     return Ok(());
                 }
+                if let Some(full_track_name) = self
+                    .local_track_by_subscribe_id
+                    .remove(&unsubscribe.subscribe_id)
+                {
+                    if let Some(local_track) = self.local_tracks.get_mut(&full_track_name) {
+                        local_track.delete_window(unsubscribe.subscribe_id);
+                    }
+                }
                 self.eouts.push_back(EventOut::UnsubscribeReceived {
                     subscribe_id: unsubscribe.subscribe_id,
                 });
@@ -712,6 +768,18 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
             Command::Close { code, reason } => {
                 self.wouts.push_back(WriteOutput::Close { code, reason });
             }
+            Command::RegisterLocalTrack {
+                track_namespace,
+                track_name,
+                forwarding_preference,
+                next_sequence,
+            } => {
+                let full_track_name = FullTrackName::new(track_namespace, track_name);
+                self.local_tracks.insert(
+                    full_track_name.clone(),
+                    LocalTrack::new(full_track_name, forwarding_preference, next_sequence),
+                );
+            }
             Command::Subscribe {
                 track_namespace,
                 track_name,
@@ -763,8 +831,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         "cannot send SUBSCRIBE_OK before session established".to_string(),
                     ));
                 }
-                let Some(incoming_subscribe) = self.incoming_subscribes.get_mut(&subscribe_id)
-                else {
+                let Some(incoming_subscribe) = self.incoming_subscribes.get(&subscribe_id) else {
                     return Err(crate::Error::ErrOther(format!(
                         "cannot send SUBSCRIBE_OK for unknown subscribe_id {}",
                         subscribe_id
@@ -776,7 +843,58 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         subscribe_id
                     )));
                 }
-                incoming_subscribe.accepted = true;
+                let full_track_name = FullTrackName::new(
+                    incoming_subscribe.message.track_namespace.clone(),
+                    incoming_subscribe.message.track_name.clone(),
+                );
+                let local_track = self.local_tracks.get_mut(&full_track_name).ok_or_else(|| {
+                    crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_OK for unknown track {}:{}",
+                        full_track_name.track_namespace, full_track_name.track_name
+                    ))
+                })?;
+                if local_track.canceled() {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_OK for canceled track {}:{}",
+                        full_track_name.track_namespace, full_track_name.track_name
+                    )));
+                }
+                if let Some(track_alias) = local_track.track_alias() {
+                    if track_alias != incoming_subscribe.message.track_alias {
+                        return Err(crate::Error::ErrOther(format!(
+                            "track alias mismatch for subscribe_id {}",
+                            subscribe_id
+                        )));
+                    }
+                } else if self
+                    .used_track_aliases
+                    .contains(&incoming_subscribe.message.track_alias)
+                {
+                    return Err(crate::Error::ErrOther(format!(
+                        "track alias {} already in use",
+                        incoming_subscribe.message.track_alias
+                    )));
+                } else {
+                    local_track.set_track_alias(incoming_subscribe.message.track_alias);
+                    self.used_track_aliases
+                        .insert(incoming_subscribe.message.track_alias);
+                }
+                let (start, end) = Self::resolve_filter_window(
+                    local_track,
+                    incoming_subscribe.message.filter_type,
+                );
+                local_track.add_window(
+                    subscribe_id,
+                    start,
+                    end.map(|seq| seq.group_id),
+                    end.map(|seq| seq.object_id),
+                );
+                self.local_track_by_subscribe_id
+                    .insert(subscribe_id, full_track_name);
+                self.incoming_subscribes
+                    .get_mut(&subscribe_id)
+                    .expect("incoming subscribe exists")
+                    .accepted = true;
                 self.send_control_message(ControlMessage::SubscribeOk(SubscribeOk {
                     subscribe_id,
                     expires,
@@ -794,12 +912,13 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         "cannot send SUBSCRIBE_ERROR before session established".to_string(),
                     ));
                 }
-                if self.incoming_subscribes.remove(&subscribe_id).is_none() {
+                if !self.incoming_subscribes.contains_key(&subscribe_id) {
                     return Err(crate::Error::ErrOther(format!(
                         "cannot send SUBSCRIBE_ERROR for unknown subscribe_id {}",
                         subscribe_id
                     )));
                 }
+                self.cleanup_incoming_subscription(subscribe_id);
                 self.send_control_message(ControlMessage::SubscribeError(SubscribeError {
                     subscribe_id,
                     error_code,
@@ -854,13 +973,68 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         subscribe_id
                     )));
                 }
-                self.incoming_subscribes.remove(&subscribe_id);
+                self.cleanup_incoming_subscription(subscribe_id);
                 self.send_control_message(ControlMessage::SubscribeDone(SubscribeDone {
                     subscribe_id,
                     status_code,
                     reason_phrase,
                     final_group_object,
                 }))?;
+            }
+            Command::PublishObject {
+                track_namespace,
+                track_name,
+                group_id,
+                object_id,
+                send_order,
+                status,
+                payload,
+            } => {
+                let full_track_name = FullTrackName::new(track_namespace, track_name);
+                let local_track = self.local_tracks.get_mut(&full_track_name).ok_or_else(|| {
+                    crate::Error::ErrOther(format!(
+                        "cannot publish unknown track {}:{}",
+                        full_track_name.track_namespace, full_track_name.track_name
+                    ))
+                })?;
+                let forwarding_preference = local_track.forwarding_preference();
+                if forwarding_preference != ObjectForwardingPreference::Datagram {
+                    return Err(crate::Error::ErrOther(
+                        "only datagram publishing is implemented in SessionCore".to_string(),
+                    ));
+                }
+                let track_alias = local_track.track_alias().ok_or_else(|| {
+                    crate::Error::ErrOther(format!(
+                        "cannot publish unsubscribed track {}:{}",
+                        full_track_name.track_namespace, full_track_name.track_name
+                    ))
+                })?;
+                let sequence = FullSequence::new(group_id, object_id);
+                let subscribe_ids = local_track
+                    .should_send(sequence)
+                    .into_iter()
+                    .map(|window| window.subscribe_id())
+                    .collect::<Vec<_>>();
+                for subscribe_id in subscribe_ids {
+                    let mut bytes = BytesMut::new();
+                    let _ = MessageFramer::serialize_object_datagram(
+                        ObjectHeader {
+                            subscribe_id,
+                            track_alias,
+                            group_id,
+                            object_id,
+                            object_send_order: send_order,
+                            object_status: status,
+                            object_forwarding_preference: forwarding_preference,
+                            object_payload_length: None,
+                        },
+                        payload.clone(),
+                        &mut bytes,
+                    )?;
+                    self.wouts
+                        .push_back(WriteOutput::SendDatagram(bytes.freeze()));
+                }
+                local_track.sent_sequence(sequence, status);
             }
             Command::Unsubscribe { subscribe_id } => {
                 if self.state != SessionState::Established {
@@ -904,6 +1078,9 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 self.control_stream_id = None;
                 self.control_parser = None;
                 self.remote_tracks.clear();
+                self.local_tracks.clear();
+                self.local_track_by_subscribe_id.clear();
+                self.used_track_aliases.clear();
                 self.pending_outgoing_subscribes.clear();
                 self.active_outgoing_subscribes.clear();
                 self.incoming_subscribes.clear();
@@ -1287,6 +1464,12 @@ mod test {
     #[test]
     fn server_sends_subscribe_ok_command() -> Result<()> {
         let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
         let mut client_setup_bytes = BytesMut::new();
         let _ = MessageFramer::serialize_control_message(
             ControlMessage::ClientSetup(ClientSetup {
@@ -1415,6 +1598,12 @@ mod test {
     #[test]
     fn server_receives_subscribe_update_for_accepted_subscription() -> Result<()> {
         let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
         let mut client_setup_bytes = BytesMut::new();
         let _ = MessageFramer::serialize_control_message(
             ControlMessage::ClientSetup(ClientSetup {
@@ -1486,6 +1675,12 @@ mod test {
     #[test]
     fn server_sends_subscribe_done_for_accepted_subscription() -> Result<()> {
         let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
         let mut client_setup_bytes = BytesMut::new();
         let _ = MessageFramer::serialize_control_message(
             ControlMessage::ClientSetup(ClientSetup {
@@ -1866,6 +2061,171 @@ mod test {
                 },
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn server_accepts_subscribe_for_registered_track_and_publishes_datagram() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 51,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let subscribe = Subscribe {
+            subscribe_id: 7,
+            track_alias: 9,
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+            authorization_info: None,
+        };
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(subscribe),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 51,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 0,
+            object_id: 0,
+            send_order: 0,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+
+        let Some(WriteOutput::SendDatagram(bytes)) = protocol.poll_write() else {
+            panic!("expected datagram output");
+        };
+        let (object_header, payload) = MessageParser::process_datagram(&mut bytes.as_ref())?;
+        assert_eq!(
+            object_header,
+            ObjectHeader {
+                subscribe_id: 7,
+                track_alias: 9,
+                group_id: 0,
+                object_id: 0,
+                object_send_order: 0,
+                object_status: ObjectStatus::Normal,
+                object_forwarding_preference: ObjectForwardingPreference::Datagram,
+                object_payload_length: None,
+            }
+        );
+        assert_eq!(payload, Bytes::from_static(b"frame"));
+        Ok(())
+    }
+
+    #[test]
+    fn unsubscribe_stops_publisher_datagrams() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 53,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 53,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut unsubscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::UnSubscribe(UnSubscribe { subscribe_id: 7 }),
+            &mut unsubscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 53,
+            data: unsubscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 0,
+            object_id: 0,
+            send_order: 0,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+
+        assert_eq!(protocol.poll_write(), None);
         Ok(())
     }
 }
