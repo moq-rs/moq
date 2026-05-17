@@ -2,11 +2,13 @@ use crate::message::object::{ObjectForwardingPreference, ObjectHeader};
 use crate::message::FullTrackName;
 use bytes::Bytes;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RemoteTrackOnReply {
     pub full_track_name: FullTrackName,
     pub error_reason_phrase: Option<String>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RemoteTrackOnObjectFragment {
     pub object_header: ObjectHeader,
     pub payload: Bytes,
@@ -14,6 +16,7 @@ pub struct RemoteTrackOnObjectFragment {
 }
 
 /// A track on the peer to which the session has subscribed.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RemoteTrack {
     full_track_name: FullTrackName,
     track_alias: u64,

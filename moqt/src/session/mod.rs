@@ -18,7 +18,7 @@ use std::time::Instant;
 
 mod config;
 mod local_track;
-mod remote_track;
+pub(crate) mod remote_track;
 mod stream;
 mod subscribe_window;
 
