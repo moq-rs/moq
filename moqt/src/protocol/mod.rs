@@ -1,5 +1,7 @@
 use crate::message::client_setup::ClientSetup;
 use crate::message::message_framer::MessageFramer;
+use crate::message::message_parser::{MessageParser, MessageParserEvent};
+use crate::message::server_setup::ServerSetup;
 use crate::message::{ControlMessage, Role, Version};
 use crate::{Result, StreamId};
 use bytes::{Bytes, BytesMut};
@@ -70,7 +72,10 @@ pub(crate) enum EventIn {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum EventOut {
-    SessionEstablished,
+    SessionEstablished {
+        peer_role: Option<Role>,
+        path: Option<String>,
+    },
     SessionTerminated,
 }
 
@@ -99,6 +104,7 @@ pub(crate) enum WriteOutput {
 pub(crate) struct SessionCore {
     config: Config,
     control_stream_id: Option<StreamId>,
+    control_parser: Option<MessageParser>,
     routs: VecDeque<ReadOutput>,
     wouts: VecDeque<WriteOutput>,
     eouts: VecDeque<EventOut>,
@@ -109,6 +115,7 @@ impl SessionCore {
         Self {
             config,
             control_stream_id: None,
+            control_parser: None,
             routs: VecDeque::new(),
             wouts: VecDeque::new(),
             eouts: VecDeque::new(),
@@ -138,6 +145,91 @@ impl SessionCore {
         });
         Ok(())
     }
+
+    fn send_server_setup(&mut self, stream_id: StreamId) -> Result<()> {
+        let server_setup = ServerSetup {
+            supported_version: self.config.version,
+            role: Some(Role::PubSub),
+        };
+
+        let mut bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ServerSetup(server_setup),
+            &mut bytes,
+        )?;
+        self.wouts.push_back(WriteOutput::SendStream {
+            stream_id,
+            bytes,
+            fin: true,
+        });
+        Ok(())
+    }
+
+    fn ensure_control_stream(&mut self, stream_id: StreamId) {
+        if self.control_stream_id.is_none() {
+            self.control_stream_id = Some(stream_id);
+        }
+        if self.control_parser.is_none() {
+            self.control_parser = Some(MessageParser::new(self.config.use_web_transport));
+        }
+    }
+
+    fn on_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
+        match control_message {
+            ControlMessage::ClientSetup(client_setup) => {
+                if self.config.perspective != Perspective::Server {
+                    self.wouts.push_back(WriteOutput::Close {
+                        code: 1,
+                        reason: "received CLIENT_SETUP as client".to_string(),
+                    });
+                    return Ok(());
+                }
+                if !client_setup
+                    .supported_versions
+                    .contains(&self.config.version)
+                {
+                    self.wouts.push_back(WriteOutput::Close {
+                        code: 1,
+                        reason: format!("version mismatch: expected {:?}", self.config.version),
+                    });
+                    return Ok(());
+                }
+                let stream_id = self.control_stream_id.expect("control stream set");
+                self.send_server_setup(stream_id)?;
+                self.eouts.push_back(EventOut::SessionEstablished {
+                    peer_role: client_setup.role,
+                    path: client_setup.path,
+                });
+            }
+            ControlMessage::ServerSetup(server_setup) => {
+                if self.config.perspective != Perspective::Client {
+                    self.wouts.push_back(WriteOutput::Close {
+                        code: 1,
+                        reason: "received SERVER_SETUP as server".to_string(),
+                    });
+                    return Ok(());
+                }
+                if server_setup.supported_version != self.config.version {
+                    self.wouts.push_back(WriteOutput::Close {
+                        code: 1,
+                        reason: format!("version mismatch: expected {:?}", self.config.version),
+                    });
+                    return Ok(());
+                }
+                self.eouts.push_back(EventOut::SessionEstablished {
+                    peer_role: server_setup.role,
+                    path: None,
+                });
+            }
+            _ => {
+                self.routs
+                    .push_back(ReadOutput::Datagram(Bytes::from_static(
+                        b"unhandled-control-message",
+                    )));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Protocol<ReadInput, Command, EventIn> for SessionCore {
@@ -148,18 +240,46 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
     type Time = Instant;
 
     fn handle_read(&mut self, msg: ReadInput) -> Result<()> {
-        self.routs.push_back(match msg {
+        match msg {
             ReadInput::StreamData {
                 stream_id,
                 data,
                 fin,
-            } => ReadOutput::StreamData {
-                stream_id,
-                data,
-                fin,
-            },
-            ReadInput::Datagram(bytes) => ReadOutput::Datagram(bytes),
-        });
+            } => {
+                self.ensure_control_stream(stream_id);
+                if self.control_stream_id == Some(stream_id) {
+                    let mut events = Vec::new();
+                    let parser = self.control_parser.as_mut().expect("control parser set");
+                    parser.process_data(&mut data.as_ref(), fin);
+                    while let Some(event) = parser.poll_event() {
+                        events.push(event);
+                    }
+                    for event in events {
+                        match event {
+                            MessageParserEvent::ControlMessage(control_message) => {
+                                self.on_control_message(control_message)?;
+                            }
+                            MessageParserEvent::ParsingError(_, reason) => {
+                                self.wouts.push_back(WriteOutput::Close { code: 1, reason });
+                            }
+                            MessageParserEvent::ObjectMessage(_, _, _) => {
+                                self.wouts.push_back(WriteOutput::Close {
+                                    code: 1,
+                                    reason: "received object on control stream".to_string(),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    self.routs.push_back(ReadOutput::StreamData {
+                        stream_id,
+                        data,
+                        fin,
+                    });
+                }
+            }
+            ReadInput::Datagram(bytes) => self.routs.push_back(ReadOutput::Datagram(bytes)),
+        }
         Ok(())
     }
 
@@ -193,6 +313,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
             }
             EventIn::TransportClosed => {
                 self.control_stream_id = None;
+                self.control_parser = None;
                 self.eouts.push_back(EventOut::SessionTerminated);
             }
             EventIn::StreamOpened {
@@ -205,13 +326,14 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     && bidi
                     && self.control_stream_id.is_none()
                 {
-                    self.control_stream_id = Some(stream_id);
+                    self.ensure_control_stream(stream_id);
                     self.send_client_setup(stream_id)?;
                 }
             }
             EventIn::StreamClosed { stream_id } => {
                 if self.control_stream_id == Some(stream_id) {
                     self.control_stream_id = None;
+                    self.control_parser = None;
                 }
             }
         }
@@ -232,6 +354,16 @@ mod test {
         Config {
             version: Version::Draft04,
             perspective: Perspective::Client,
+            use_web_transport,
+            path: "/moq".to_string(),
+            deliver_partial_objects: false,
+        }
+    }
+
+    fn server_config(use_web_transport: bool) -> Config {
+        Config {
+            version: Version::Draft04,
+            perspective: Perspective::Server,
             use_web_transport,
             path: "/moq".to_string(),
             deliver_partial_objects: false,
@@ -318,6 +450,83 @@ mod test {
             }
             _ => panic!("unexpected parser event"),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn server_receives_client_setup_and_replies_with_server_setup() -> Result<()> {
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 11,
+            data: client_setup_bytes.freeze(),
+            fin: true,
+        })?;
+
+        let Some(WriteOutput::SendStream {
+            stream_id, bytes, ..
+        }) = protocol.poll_write()
+        else {
+            panic!("expected server setup response");
+        };
+        assert_eq!(stream_id, 11);
+
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), true);
+        let event = parser.poll_event().expect("control event");
+        match event {
+            MessageParserEvent::ControlMessage(ControlMessage::ServerSetup(server_setup)) => {
+                assert_eq!(server_setup.supported_version, Version::Draft04);
+                assert_eq!(server_setup.role, Some(Role::PubSub));
+            }
+            _ => panic!("unexpected parser event"),
+        }
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::SessionEstablished {
+                peer_role: Some(Role::PubSub),
+                path: Some("/moq".to_string())
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn client_receives_server_setup_and_establishes_session() -> Result<()> {
+        let mut server_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ServerSetup(ServerSetup {
+                supported_version: Version::Draft04,
+                role: Some(Role::PubSub),
+            }),
+            &mut server_setup_bytes,
+        )?;
+
+        let mut protocol = SessionCore::new(client_config(true));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 13,
+            data: server_setup_bytes.freeze(),
+            fin: true,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::SessionEstablished {
+                peer_role: Some(Role::PubSub),
+                path: None
+            })
+        );
         Ok(())
     }
 }
