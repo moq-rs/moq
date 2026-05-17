@@ -3,8 +3,10 @@ use crate::message::message_framer::MessageFramer;
 use crate::message::message_parser::{MessageParser, MessageParserEvent};
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
+use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::SubscribeError;
 use crate::message::subscribe_ok::SubscribeOk;
+use crate::message::subscribe_update::SubscribeUpdate;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, FilterType, FullSequence, FullTrackName, Role, Version};
 use crate::{Result, StreamId};
@@ -63,9 +65,15 @@ enum SessionState {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct ActiveSubscribe {
+struct Subscription {
     full_track_name: FullTrackName,
     track_alias: u64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct IncomingSubscribe {
+    subscription: Subscription,
+    accepted: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -90,6 +98,18 @@ pub(crate) enum Command {
         error_code: u64,
         reason_phrase: String,
         track_alias: u64,
+    },
+    SubscribeUpdate {
+        subscribe_id: u64,
+        start_group_object: FullSequence,
+        end_group_object: Option<FullSequence>,
+        authorization_info: Option<String>,
+    },
+    SubscribeDone {
+        subscribe_id: u64,
+        status_code: u64,
+        reason_phrase: String,
+        final_group_object: Option<FullSequence>,
     },
     Unsubscribe {
         subscribe_id: u64,
@@ -131,6 +151,15 @@ pub(crate) enum EventOut {
         reason_phrase: String,
         track_alias: u64,
     },
+    SubscribeUpdated(SubscribeUpdate),
+    SubscribeEnded {
+        subscribe_id: u64,
+        full_track_name: FullTrackName,
+        track_alias: u64,
+        status_code: u64,
+        reason_phrase: String,
+        final_group_object: Option<FullSequence>,
+    },
     UnsubscribeReceived {
         subscribe_id: u64,
     },
@@ -165,7 +194,9 @@ pub(crate) struct SessionCore {
     control_stream_id: Option<StreamId>,
     control_parser: Option<MessageParser>,
     remote_track_aliases: HashMap<FullTrackName, u64>,
-    active_subscribes: HashMap<u64, ActiveSubscribe>,
+    pending_outgoing_subscribes: HashMap<u64, Subscription>,
+    active_outgoing_subscribes: HashMap<u64, Subscription>,
+    incoming_subscribes: HashMap<u64, IncomingSubscribe>,
     next_remote_track_alias: u64,
     next_subscribe_id: u64,
     routs: VecDeque<ReadOutput>,
@@ -181,7 +212,9 @@ impl SessionCore {
             control_stream_id: None,
             control_parser: None,
             remote_track_aliases: HashMap::new(),
-            active_subscribes: HashMap::new(),
+            pending_outgoing_subscribes: HashMap::new(),
+            active_outgoing_subscribes: HashMap::new(),
+            incoming_subscribes: HashMap::new(),
             next_remote_track_alias: 0,
             next_subscribe_id: 0,
             routs: VecDeque::new(),
@@ -303,6 +336,29 @@ impl SessionCore {
                     self.close_with_protocol_violation("received SUBSCRIBE before session setup");
                     return Ok(());
                 }
+                if self
+                    .incoming_subscribes
+                    .contains_key(&subscribe.subscribe_id)
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received duplicate SUBSCRIBE for subscribe_id {}",
+                        subscribe.subscribe_id
+                    ));
+                    return Ok(());
+                }
+                self.incoming_subscribes.insert(
+                    subscribe.subscribe_id,
+                    IncomingSubscribe {
+                        subscription: Subscription {
+                            full_track_name: FullTrackName::new(
+                                subscribe.track_namespace.clone(),
+                                subscribe.track_name.clone(),
+                            ),
+                            track_alias: subscribe.track_alias,
+                        },
+                        accepted: false,
+                    },
+                );
                 self.eouts.push_back(EventOut::SubscribeReceived(subscribe));
             }
             ControlMessage::SubscribeOk(subscribe_ok) => {
@@ -312,8 +368,9 @@ impl SessionCore {
                     );
                     return Ok(());
                 }
-                let Some(active_subscribe) =
-                    self.active_subscribes.remove(&subscribe_ok.subscribe_id)
+                let Some(subscription) = self
+                    .pending_outgoing_subscribes
+                    .remove(&subscribe_ok.subscribe_id)
                 else {
                     self.close_with_protocol_violation(format!(
                         "received SUBSCRIBE_OK for unknown subscribe_id {}",
@@ -321,10 +378,12 @@ impl SessionCore {
                     ));
                     return Ok(());
                 };
+                self.active_outgoing_subscribes
+                    .insert(subscribe_ok.subscribe_id, subscription.clone());
                 self.eouts.push_back(EventOut::SubscribeAccepted {
                     subscribe_id: subscribe_ok.subscribe_id,
-                    full_track_name: active_subscribe.full_track_name,
-                    track_alias: active_subscribe.track_alias,
+                    full_track_name: subscription.full_track_name,
+                    track_alias: subscription.track_alias,
                     expires: subscribe_ok.expires,
                     largest_group_object: subscribe_ok.largest_group_object,
                 });
@@ -336,8 +395,9 @@ impl SessionCore {
                     );
                     return Ok(());
                 }
-                let Some(active_subscribe) =
-                    self.active_subscribes.remove(&subscribe_error.subscribe_id)
+                let Some(subscription) = self
+                    .pending_outgoing_subscribes
+                    .remove(&subscribe_error.subscribe_id)
                 else {
                     self.close_with_protocol_violation(format!(
                         "received SUBSCRIBE_ERROR for unknown subscribe_id {}",
@@ -347,15 +407,78 @@ impl SessionCore {
                 };
                 self.eouts.push_back(EventOut::SubscribeRejected {
                     subscribe_id: subscribe_error.subscribe_id,
-                    full_track_name: active_subscribe.full_track_name,
+                    full_track_name: subscription.full_track_name,
                     error_code: subscribe_error.error_code,
                     reason_phrase: subscribe_error.reason_phrase,
                     track_alias: subscribe_error.track_alias,
                 });
             }
+            ControlMessage::SubscribeUpdate(subscribe_update) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received SUBSCRIBE_UPDATE before session setup",
+                    );
+                    return Ok(());
+                }
+                let Some(incoming_subscribe) =
+                    self.incoming_subscribes.get(&subscribe_update.subscribe_id)
+                else {
+                    self.close_with_protocol_violation(format!(
+                        "received SUBSCRIBE_UPDATE for unknown subscribe_id {}",
+                        subscribe_update.subscribe_id
+                    ));
+                    return Ok(());
+                };
+                if !incoming_subscribe.accepted {
+                    self.close_with_protocol_violation(format!(
+                        "received SUBSCRIBE_UPDATE before SUBSCRIBE_OK for subscribe_id {}",
+                        subscribe_update.subscribe_id
+                    ));
+                    return Ok(());
+                }
+                self.eouts
+                    .push_back(EventOut::SubscribeUpdated(subscribe_update));
+            }
+            ControlMessage::SubscribeDone(subscribe_done) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received SUBSCRIBE_DONE before session setup",
+                    );
+                    return Ok(());
+                }
+                let Some(subscription) = self
+                    .active_outgoing_subscribes
+                    .remove(&subscribe_done.subscribe_id)
+                else {
+                    self.close_with_protocol_violation(format!(
+                        "received SUBSCRIBE_DONE for unknown subscribe_id {}",
+                        subscribe_done.subscribe_id
+                    ));
+                    return Ok(());
+                };
+                self.eouts.push_back(EventOut::SubscribeEnded {
+                    subscribe_id: subscribe_done.subscribe_id,
+                    full_track_name: subscription.full_track_name,
+                    track_alias: subscription.track_alias,
+                    status_code: subscribe_done.status_code,
+                    reason_phrase: subscribe_done.reason_phrase,
+                    final_group_object: subscribe_done.final_group_object,
+                });
+            }
             ControlMessage::UnSubscribe(unsubscribe) => {
                 if self.state != SessionState::Established {
                     self.close_with_protocol_violation("received UNSUBSCRIBE before session setup");
+                    return Ok(());
+                }
+                if self
+                    .incoming_subscribes
+                    .remove(&unsubscribe.subscribe_id)
+                    .is_none()
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received UNSUBSCRIBE for unknown subscribe_id {}",
+                        unsubscribe.subscribe_id
+                    ));
                     return Ok(());
                 }
                 self.eouts.push_back(EventOut::UnsubscribeReceived {
@@ -466,9 +589,9 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     authorization_info,
                 };
                 self.send_control_message(ControlMessage::Subscribe(subscribe))?;
-                self.active_subscribes.insert(
+                self.pending_outgoing_subscribes.insert(
                     subscribe_id,
-                    ActiveSubscribe {
+                    Subscription {
                         full_track_name,
                         track_alias,
                     },
@@ -484,6 +607,20 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         "cannot send SUBSCRIBE_OK before session established".to_string(),
                     ));
                 }
+                let Some(incoming_subscribe) = self.incoming_subscribes.get_mut(&subscribe_id)
+                else {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_OK for unknown subscribe_id {}",
+                        subscribe_id
+                    )));
+                };
+                if incoming_subscribe.accepted {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send duplicate SUBSCRIBE_OK for subscribe_id {}",
+                        subscribe_id
+                    )));
+                }
+                incoming_subscribe.accepted = true;
                 self.send_control_message(ControlMessage::SubscribeOk(SubscribeOk {
                     subscribe_id,
                     expires,
@@ -501,6 +638,12 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         "cannot send SUBSCRIBE_ERROR before session established".to_string(),
                     ));
                 }
+                if self.incoming_subscribes.remove(&subscribe_id).is_none() {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_ERROR for unknown subscribe_id {}",
+                        subscribe_id
+                    )));
+                }
                 self.send_control_message(ControlMessage::SubscribeError(SubscribeError {
                     subscribe_id,
                     error_code,
@@ -508,11 +651,74 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     track_alias,
                 }))?;
             }
+            Command::SubscribeUpdate {
+                subscribe_id,
+                start_group_object,
+                end_group_object,
+                authorization_info,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send SUBSCRIBE_UPDATE before session established".to_string(),
+                    ));
+                }
+                if !self.active_outgoing_subscribes.contains_key(&subscribe_id) {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_UPDATE for unknown subscribe_id {}",
+                        subscribe_id
+                    )));
+                }
+                self.send_control_message(ControlMessage::SubscribeUpdate(SubscribeUpdate {
+                    subscribe_id,
+                    start_group_object,
+                    end_group_object,
+                    authorization_info,
+                }))?;
+            }
+            Command::SubscribeDone {
+                subscribe_id,
+                status_code,
+                reason_phrase,
+                final_group_object,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send SUBSCRIBE_DONE before session established".to_string(),
+                    ));
+                }
+                let Some(incoming_subscribe) = self.incoming_subscribes.get(&subscribe_id) else {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_DONE for unknown subscribe_id {}",
+                        subscribe_id
+                    )));
+                };
+                if !incoming_subscribe.accepted {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send SUBSCRIBE_DONE before SUBSCRIBE_OK for subscribe_id {}",
+                        subscribe_id
+                    )));
+                }
+                self.incoming_subscribes.remove(&subscribe_id);
+                self.send_control_message(ControlMessage::SubscribeDone(SubscribeDone {
+                    subscribe_id,
+                    status_code,
+                    reason_phrase,
+                    final_group_object,
+                }))?;
+            }
             Command::Unsubscribe { subscribe_id } => {
                 if self.state != SessionState::Established {
                     return Err(crate::Error::ErrOther(
                         "cannot send UNSUBSCRIBE before session established".to_string(),
                     ));
+                }
+                if !self.pending_outgoing_subscribes.contains_key(&subscribe_id)
+                    && !self.active_outgoing_subscribes.contains_key(&subscribe_id)
+                {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send UNSUBSCRIBE for unknown subscribe_id {}",
+                        subscribe_id
+                    )));
                 }
                 self.send_control_message(ControlMessage::UnSubscribe(UnSubscribe {
                     subscribe_id,
@@ -541,7 +747,9 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 self.state = SessionState::Closed;
                 self.control_stream_id = None;
                 self.control_parser = None;
-                self.active_subscribes.clear();
+                self.pending_outgoing_subscribes.clear();
+                self.active_outgoing_subscribes.clear();
+                self.incoming_subscribes.clear();
                 self.eouts.push_back(EventOut::SessionTerminated);
             }
             EventIn::StreamOpened {
@@ -829,7 +1037,7 @@ mod test {
                 )?;
                 bytes.freeze()
             },
-            fin: true,
+            fin: false,
         })?;
         let _ = protocol.poll_event();
         protocol.handle_write(Command::Subscribe {
@@ -931,9 +1139,27 @@ mod test {
         protocol.handle_read(ReadInput::StreamData {
             stream_id: 27,
             data: client_setup_bytes.freeze(),
-            fin: true,
+            fin: false,
         })?;
         let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 3,
+                track_alias: 4,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::LatestGroup,
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 27,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
         let _ = protocol.poll_event();
 
         protocol.handle_write(Command::SubscribeOk {
@@ -955,6 +1181,287 @@ mod test {
             }
             _ => panic!("unexpected parser event"),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn client_sends_subscribe_update_for_active_subscription() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 29,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::Subscribe {
+            track_namespace: "foo".to_string(),
+            track_name: "bar".to_string(),
+            filter_type: FilterType::LatestObject,
+            authorization_info: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut subscribe_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::SubscribeOk(SubscribeOk {
+                subscribe_id: 0,
+                expires: 30,
+                largest_group_object: None,
+            }),
+            &mut subscribe_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 29,
+            data: subscribe_ok_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::SubscribeUpdate {
+            subscribe_id: 0,
+            start_group_object: FullSequence::new(8, 1),
+            end_group_object: Some(FullSequence::new(10, 5)),
+            authorization_info: None,
+        })?;
+
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected SUBSCRIBE_UPDATE bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::SubscribeUpdate(update))) => {
+                assert_eq!(update.subscribe_id, 0);
+                assert_eq!(update.start_group_object, FullSequence::new(8, 1));
+                assert_eq!(update.end_group_object, Some(FullSequence::new(10, 5)));
+                assert_eq!(update.authorization_info, None);
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn server_receives_subscribe_update_for_accepted_subscription() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 31,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let subscribe = Subscribe {
+            subscribe_id: 7,
+            track_alias: 9,
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::LatestGroup,
+            authorization_info: None,
+        };
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(subscribe),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 31,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let update = SubscribeUpdate {
+            subscribe_id: 7,
+            start_group_object: FullSequence::new(3, 1),
+            end_group_object: Some(FullSequence::new(5, 9)),
+            authorization_info: Some("authz".to_string()),
+        };
+        let mut update_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::SubscribeUpdate(update.clone()),
+            &mut update_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 31,
+            data: update_bytes.freeze(),
+            fin: false,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::SubscribeUpdated(update))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn server_sends_subscribe_done_for_accepted_subscription() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 33,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::LatestGroup,
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 33,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::SubscribeDone {
+            subscribe_id: 7,
+            status_code: 3,
+            reason_phrase: "track ended".to_string(),
+            final_group_object: Some(FullSequence::new(12, 4)),
+        })?;
+
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected SUBSCRIBE_DONE bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::SubscribeDone(done))) => {
+                assert_eq!(done.subscribe_id, 7);
+                assert_eq!(done.status_code, 3);
+                assert_eq!(done.reason_phrase, "track ended");
+                assert_eq!(done.final_group_object, Some(FullSequence::new(12, 4)));
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn client_receives_subscribe_done_for_active_subscription() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 35,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::Subscribe {
+            track_namespace: "foo".to_string(),
+            track_name: "bar".to_string(),
+            filter_type: FilterType::LatestObject,
+            authorization_info: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut subscribe_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::SubscribeOk(SubscribeOk {
+                subscribe_id: 0,
+                expires: 30,
+                largest_group_object: Some(FullSequence::new(7, 2)),
+            }),
+            &mut subscribe_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 35,
+            data: subscribe_ok_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        let mut subscribe_done_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::SubscribeDone(SubscribeDone {
+                subscribe_id: 0,
+                status_code: 6,
+                reason_phrase: "expired".to_string(),
+                final_group_object: Some(FullSequence::new(9, 7)),
+            }),
+            &mut subscribe_done_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 35,
+            data: subscribe_done_bytes.freeze(),
+            fin: false,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::SubscribeEnded {
+                subscribe_id: 0,
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                track_alias: 0,
+                status_code: 6,
+                reason_phrase: "expired".to_string(),
+                final_group_object: Some(FullSequence::new(9, 7)),
+            })
+        );
         Ok(())
     }
 }
