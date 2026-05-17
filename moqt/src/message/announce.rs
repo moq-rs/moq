@@ -62,6 +62,8 @@ impl Serializer for Announce {
                 authorization_info.to_string(),
             )?;
             l += parameters.serialize(w)?;
+        } else {
+            l += 0u64.serialize(w)?;
         }
 
         Ok(l)
@@ -85,6 +87,30 @@ mod test {
         let expected_message = ControlMessage::Announce(Announce {
             track_namespace: "foo".to_string(),
             authorization_info: Some("bar".to_string()),
+        });
+
+        let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());
+        let (actual_message, actual_len) = ControlMessage::deserialize(&mut cursor)?;
+        assert_eq!(expected_message, actual_message);
+        assert_eq!(expected_packet.len(), actual_len);
+
+        let mut actual_packet = vec![];
+        let _ = expected_message.serialize(&mut actual_packet)?;
+        assert_eq!(expected_packet, actual_packet);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_announce_without_authorization_info() -> Result<()> {
+        let expected_packet: Vec<u8> = vec![
+            0x06, 0x03, 0x66, 0x6f, 0x6f, // track_namespace = "foo"
+            0x00, // 0 parameters
+        ];
+
+        let expected_message = ControlMessage::Announce(Announce {
+            track_namespace: "foo".to_string(),
+            authorization_info: None,
         });
 
         let mut cursor: Cursor<&[u8]> = Cursor::new(expected_packet.as_ref());

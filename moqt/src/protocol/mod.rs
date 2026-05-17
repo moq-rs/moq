@@ -1,3 +1,7 @@
+use crate::message::announce::Announce;
+use crate::message::announce_cancel::AnnounceCancel;
+use crate::message::announce_error::AnnounceError;
+use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_parser::{MessageParser, MessageParserEvent};
@@ -8,6 +12,7 @@ use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::SubscribeError;
 use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::subscribe_update::SubscribeUpdate;
+use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, FilterType, FullSequence, FullTrackName, Role, Version};
 use crate::session::local_track::LocalTrack;
@@ -79,6 +84,12 @@ struct IncomingSubscribe {
     accepted: bool,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct IncomingAnnounce {
+    message: Announce,
+    accepted: bool,
+}
+
 struct DataStreamState {
     parser: MessageParser,
     partial_object: Option<(ObjectHeader, BytesMut)>,
@@ -110,6 +121,21 @@ pub(crate) enum Command {
         track_name: String,
         forwarding_preference: ObjectForwardingPreference,
         next_sequence: Option<FullSequence>,
+    },
+    Announce {
+        track_namespace: String,
+        authorization_info: Option<String>,
+    },
+    AnnounceOk {
+        track_namespace: String,
+    },
+    AnnounceError {
+        track_namespace: String,
+        error_code: u64,
+        reason_phrase: String,
+    },
+    AnnounceCancel {
+        track_namespace: String,
     },
     Subscribe {
         track_namespace: String,
@@ -152,6 +178,9 @@ pub(crate) enum Command {
     Unsubscribe {
         subscribe_id: u64,
     },
+    Unannounce {
+        track_namespace: String,
+    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -173,6 +202,18 @@ pub(crate) enum EventOut {
     SessionEstablished {
         peer_role: Option<Role>,
         path: Option<String>,
+    },
+    AnnounceReceived(Announce),
+    AnnounceAccepted {
+        track_namespace: String,
+    },
+    AnnounceRejected {
+        track_namespace: String,
+        error_code: u64,
+        reason_phrase: String,
+    },
+    AnnounceCancelled {
+        track_namespace: String,
     },
     SubscribeReceived(Subscribe),
     SubscribeAccepted {
@@ -204,6 +245,9 @@ pub(crate) enum EventOut {
     },
     UnsubscribeReceived {
         subscribe_id: u64,
+    },
+    UnannounceReceived {
+        track_namespace: String,
     },
     SessionTerminated,
 }
@@ -240,9 +284,12 @@ pub(crate) struct SessionCore {
     local_tracks: HashMap<FullTrackName, LocalTrack>,
     local_track_by_subscribe_id: HashMap<u64, FullTrackName>,
     used_track_aliases: HashSet<u64>,
+    pending_outgoing_announces: HashSet<String>,
+    active_outgoing_announces: HashSet<String>,
     pending_outgoing_subscribes: HashMap<u64, Subscription>,
     active_outgoing_subscribes: HashMap<u64, Subscription>,
     closing_outgoing_subscribes: HashMap<u64, Subscription>,
+    incoming_announces: HashMap<String, IncomingAnnounce>,
     incoming_subscribes: HashMap<u64, IncomingSubscribe>,
     data_streams: HashMap<StreamId, DataStreamState>,
     pending_data_stream_opens: VecDeque<PendingDataStreamOpen>,
@@ -266,9 +313,12 @@ impl SessionCore {
             local_tracks: HashMap::new(),
             local_track_by_subscribe_id: HashMap::new(),
             used_track_aliases: HashSet::new(),
+            pending_outgoing_announces: HashSet::new(),
+            active_outgoing_announces: HashSet::new(),
             pending_outgoing_subscribes: HashMap::new(),
             active_outgoing_subscribes: HashMap::new(),
             closing_outgoing_subscribes: HashMap::new(),
+            incoming_announces: HashMap::new(),
             incoming_subscribes: HashMap::new(),
             data_streams: HashMap::new(),
             pending_data_stream_opens: VecDeque::new(),
@@ -608,6 +658,120 @@ impl SessionCore {
                     path: None,
                 });
             }
+            ControlMessage::Announce(announce) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation("received ANNOUNCE before session setup");
+                    return Ok(());
+                }
+                if self
+                    .incoming_announces
+                    .contains_key(&announce.track_namespace)
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received duplicate ANNOUNCE for namespace {}",
+                        announce.track_namespace
+                    ));
+                    return Ok(());
+                }
+                self.incoming_announces.insert(
+                    announce.track_namespace.clone(),
+                    IncomingAnnounce {
+                        message: announce.clone(),
+                        accepted: false,
+                    },
+                );
+                self.eouts.push_back(EventOut::AnnounceReceived(announce));
+            }
+            ControlMessage::AnnounceOk(announce_ok) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation("received ANNOUNCE_OK before session setup");
+                    return Ok(());
+                }
+                if !self
+                    .pending_outgoing_announces
+                    .remove(&announce_ok.track_namespace)
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received ANNOUNCE_OK for unknown namespace {}",
+                        announce_ok.track_namespace
+                    ));
+                    return Ok(());
+                }
+                self.active_outgoing_announces
+                    .insert(announce_ok.track_namespace.clone());
+                self.eouts.push_back(EventOut::AnnounceAccepted {
+                    track_namespace: announce_ok.track_namespace,
+                });
+            }
+            ControlMessage::AnnounceError(announce_error) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received ANNOUNCE_ERROR before session setup",
+                    );
+                    return Ok(());
+                }
+                if !self
+                    .pending_outgoing_announces
+                    .remove(&announce_error.track_namespace)
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received ANNOUNCE_ERROR for unknown namespace {}",
+                        announce_error.track_namespace
+                    ));
+                    return Ok(());
+                }
+                self.eouts.push_back(EventOut::AnnounceRejected {
+                    track_namespace: announce_error.track_namespace,
+                    error_code: announce_error.error_code,
+                    reason_phrase: announce_error.reason_phrase,
+                });
+            }
+            ControlMessage::UnAnnounce(unannounce) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation("received UNANNOUNCE before session setup");
+                    return Ok(());
+                }
+                let Some(incoming_announce) =
+                    self.incoming_announces.remove(&unannounce.track_namespace)
+                else {
+                    self.close_with_protocol_violation(format!(
+                        "received UNANNOUNCE for unknown namespace {}",
+                        unannounce.track_namespace
+                    ));
+                    return Ok(());
+                };
+                if !incoming_announce.accepted {
+                    self.close_with_protocol_violation(format!(
+                        "received UNANNOUNCE before ANNOUNCE_OK for namespace {}",
+                        unannounce.track_namespace
+                    ));
+                    return Ok(());
+                }
+                self.eouts.push_back(EventOut::UnannounceReceived {
+                    track_namespace: unannounce.track_namespace,
+                });
+            }
+            ControlMessage::AnnounceCancel(announce_cancel) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received ANNOUNCE_CANCEL before session setup",
+                    );
+                    return Ok(());
+                }
+                if !self
+                    .active_outgoing_announces
+                    .remove(&announce_cancel.track_namespace)
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received ANNOUNCE_CANCEL for unknown namespace {}",
+                        announce_cancel.track_namespace
+                    ));
+                    return Ok(());
+                }
+                self.eouts.push_back(EventOut::AnnounceCancelled {
+                    track_namespace: announce_cancel.track_namespace,
+                });
+            }
             ControlMessage::Subscribe(subscribe) => {
                 if self.state != SessionState::Established {
                     self.close_with_protocol_violation("received SUBSCRIBE before session setup");
@@ -807,10 +971,38 @@ impl SessionCore {
                     subscribe_id: unsubscribe.subscribe_id,
                 });
             }
-            other => {
+            ControlMessage::TrackStatusRequest(track_status_request) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received TRACK_STATUS_REQUEST before session setup",
+                    );
+                    return Ok(());
+                }
                 self.close_with_protocol_violation(format!(
                     "unsupported control message: {:?}",
-                    other
+                    track_status_request
+                ));
+            }
+            ControlMessage::TrackStatus(track_status) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received TRACK_STATUS before session setup",
+                    );
+                    return Ok(());
+                }
+                self.close_with_protocol_violation(format!(
+                    "unsupported control message: {:?}",
+                    track_status
+                ));
+            }
+            ControlMessage::GoAway(go_away) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation("received GOAWAY before session setup");
+                    return Ok(());
+                }
+                self.close_with_protocol_violation(format!(
+                    "unsupported control message: {:?}",
+                    go_away
                 ));
             }
         }
@@ -885,6 +1077,105 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     full_track_name.clone(),
                     LocalTrack::new(full_track_name, forwarding_preference, next_sequence),
                 );
+            }
+            Command::Announce {
+                track_namespace,
+                authorization_info,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send ANNOUNCE before session established".to_string(),
+                    ));
+                }
+                if self.pending_outgoing_announces.contains(&track_namespace)
+                    || self.active_outgoing_announces.contains(&track_namespace)
+                {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send duplicate ANNOUNCE for namespace {}",
+                        track_namespace
+                    )));
+                }
+                self.send_control_message(ControlMessage::Announce(Announce {
+                    track_namespace: track_namespace.clone(),
+                    authorization_info,
+                }))?;
+                self.pending_outgoing_announces.insert(track_namespace);
+            }
+            Command::AnnounceOk { track_namespace } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send ANNOUNCE_OK before session established".to_string(),
+                    ));
+                }
+                let Some(incoming_announce) = self.incoming_announces.get_mut(&track_namespace)
+                else {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send ANNOUNCE_OK for unknown namespace {}",
+                        track_namespace
+                    )));
+                };
+                if incoming_announce.accepted {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send duplicate ANNOUNCE_OK for namespace {}",
+                        track_namespace
+                    )));
+                }
+                incoming_announce.accepted = true;
+                self.send_control_message(ControlMessage::AnnounceOk(AnnounceOk {
+                    track_namespace,
+                }))?;
+            }
+            Command::AnnounceError {
+                track_namespace,
+                error_code,
+                reason_phrase,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send ANNOUNCE_ERROR before session established".to_string(),
+                    ));
+                }
+                let Some(incoming_announce) = self.incoming_announces.get(&track_namespace) else {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send ANNOUNCE_ERROR for unknown namespace {}",
+                        track_namespace
+                    )));
+                };
+                if incoming_announce.accepted {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send ANNOUNCE_ERROR after ANNOUNCE_OK for namespace {}",
+                        track_namespace
+                    )));
+                }
+                self.incoming_announces.remove(&track_namespace);
+                self.send_control_message(ControlMessage::AnnounceError(AnnounceError {
+                    track_namespace,
+                    error_code,
+                    reason_phrase,
+                }))?;
+            }
+            Command::AnnounceCancel { track_namespace } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send ANNOUNCE_CANCEL before session established".to_string(),
+                    ));
+                }
+                let Some(incoming_announce) = self.incoming_announces.remove(&track_namespace)
+                else {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send ANNOUNCE_CANCEL for unknown namespace {}",
+                        track_namespace
+                    )));
+                };
+                if !incoming_announce.accepted {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send ANNOUNCE_CANCEL before ANNOUNCE_OK for namespace {}",
+                        track_namespace
+                    )));
+                }
+                self.send_control_message(ControlMessage::AnnounceCancel(AnnounceCancel {
+                    track_namespace,
+                }))?;
             }
             Command::Subscribe {
                 track_namespace,
@@ -1213,6 +1504,22 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     subscribe_id,
                 }))?;
             }
+            Command::Unannounce { track_namespace } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send UNANNOUNCE before session established".to_string(),
+                    ));
+                }
+                if !self.active_outgoing_announces.remove(&track_namespace) {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send UNANNOUNCE for unknown namespace {}",
+                        track_namespace
+                    )));
+                }
+                self.send_control_message(ControlMessage::UnAnnounce(UnAnnounce {
+                    track_namespace,
+                }))?;
+            }
         }
         Ok(())
     }
@@ -1240,9 +1547,12 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 self.local_tracks.clear();
                 self.local_track_by_subscribe_id.clear();
                 self.used_track_aliases.clear();
+                self.pending_outgoing_announces.clear();
+                self.active_outgoing_announces.clear();
                 self.pending_outgoing_subscribes.clear();
                 self.active_outgoing_subscribes.clear();
                 self.closing_outgoing_subscribes.clear();
+                self.incoming_announces.clear();
                 self.incoming_subscribes.clear();
                 self.data_streams.clear();
                 self.pending_data_stream_opens.clear();
@@ -1496,6 +1806,193 @@ mod test {
             Some(EventOut::SessionEstablished {
                 peer_role: Some(Role::PubSub),
                 path: None
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn client_sends_announce_after_session_established() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 19,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Announce {
+            track_namespace: "live".to_string(),
+            authorization_info: None,
+        })?;
+
+        let Some(WriteOutput::SendStream {
+            stream_id, bytes, ..
+        }) = protocol.poll_write()
+        else {
+            panic!("expected announce bytes");
+        };
+        assert_eq!(stream_id, 19);
+
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::Announce(announce))) => {
+                assert_eq!(announce.track_namespace, "live");
+                assert_eq!(announce.authorization_info, None);
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn client_receives_announce_ok_and_announce_cancel() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Announce {
+            track_namespace: "live".to_string(),
+            authorization_info: Some("token".to_string()),
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut announce_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::AnnounceOk(AnnounceOk {
+                track_namespace: "live".to_string(),
+            }),
+            &mut announce_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: announce_ok_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::AnnounceAccepted {
+                track_namespace: "live".to_string(),
+            })
+        );
+
+        let mut announce_cancel_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::AnnounceCancel(AnnounceCancel {
+                track_namespace: "live".to_string(),
+            }),
+            &mut announce_cancel_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: announce_cancel_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::AnnounceCancelled {
+                track_namespace: "live".to_string(),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn server_receives_announce_accepts_and_receives_unannounce() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 22,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let announce = Announce {
+            track_namespace: "live".to_string(),
+            authorization_info: None,
+        };
+        let mut announce_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Announce(announce.clone()),
+            &mut announce_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 22,
+            data: announce_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::AnnounceReceived(announce))
+        );
+
+        protocol.handle_write(Command::AnnounceOk {
+            track_namespace: "live".to_string(),
+        })?;
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected ANNOUNCE_OK bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::AnnounceOk(announce_ok))) => {
+                assert_eq!(announce_ok.track_namespace, "live");
+            }
+            _ => panic!("unexpected parser event"),
+        }
+
+        let mut unannounce_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::UnAnnounce(UnAnnounce {
+                track_namespace: "live".to_string(),
+            }),
+            &mut unannounce_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 22,
+            data: unannounce_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::UnannounceReceived {
+                track_namespace: "live".to_string(),
             })
         );
         Ok(())
