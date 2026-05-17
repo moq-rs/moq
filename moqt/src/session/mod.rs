@@ -124,3 +124,67 @@ impl Handler for Session {
         self.driver.poll_timeout()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::message::message_framer::MessageFramer;
+    use crate::message::server_setup::ServerSetup;
+    use crate::message::{ControlMessage, Role, Version};
+    use retty::transport::{Transmit, TransportContext};
+
+    fn client_config() -> config::Config {
+        config::Config {
+            version: Version::Draft04,
+            perspective: config::Perspective::Client,
+            use_web_transport: false,
+            path: "/moq".to_string(),
+            deliver_partial_objects: false,
+        }
+    }
+
+    #[test]
+    fn session_wrapper_establishes_client_session_from_handler_surface() -> Result<()> {
+        let mut session = Session::new(client_config(), Connection::QUIC);
+
+        session.transport_active()?;
+
+        let mut server_setup_bytes = bytes::BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ServerSetup(ServerSetup {
+                supported_version: Version::Draft04,
+                role: Some(Role::PubSub),
+            }),
+            &mut server_setup_bytes,
+        )?;
+
+        session.handle_read(Transmit {
+            now: Instant::now(),
+            transport: TransportContext::default(),
+            message: ReadInput::StreamData {
+                stream_id: 0,
+                data: server_setup_bytes.freeze(),
+                fin: false,
+            },
+        })?;
+
+        assert_eq!(
+            session.poll_event(),
+            Some(EventOut::SessionEstablished {
+                peer_role: Some(Role::PubSub),
+                path: None,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn session_wrapper_emits_termination_on_transport_inactive() -> Result<()> {
+        let mut session = Session::new(client_config(), Connection::QUIC);
+
+        session.transport_inactive()?;
+
+        assert_eq!(session.poll_event(), Some(EventOut::SessionTerminated));
+        Ok(())
+    }
+}
