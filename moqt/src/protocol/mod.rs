@@ -575,6 +575,10 @@ impl SessionCore {
 
     fn cleanup_incoming_subscription(&mut self, subscribe_id: u64) {
         self.incoming_subscribes.remove(&subscribe_id);
+        self.pending_data_stream_opens
+            .retain(|pending| pending.subscribe_id != subscribe_id);
+        self.publisher_streams
+            .retain(|_, binding| binding.subscribe_id != subscribe_id);
         if let Some(full_track_name) = self.local_track_by_subscribe_id.remove(&subscribe_id) {
             if let Some(local_track) = self.local_tracks.get_mut(&full_track_name) {
                 local_track.delete_window(subscribe_id);
@@ -987,10 +991,9 @@ impl SessionCore {
                     self.close_with_protocol_violation("received UNSUBSCRIBE before session setup");
                     return Ok(());
                 }
-                if self
+                if !self
                     .incoming_subscribes
-                    .remove(&unsubscribe.subscribe_id)
-                    .is_none()
+                    .contains_key(&unsubscribe.subscribe_id)
                 {
                     self.close_with_protocol_violation(format!(
                         "received UNSUBSCRIBE for unknown subscribe_id {}",
@@ -998,14 +1001,7 @@ impl SessionCore {
                     ));
                     return Ok(());
                 }
-                if let Some(full_track_name) = self
-                    .local_track_by_subscribe_id
-                    .remove(&unsubscribe.subscribe_id)
-                {
-                    if let Some(local_track) = self.local_tracks.get_mut(&full_track_name) {
-                        local_track.delete_window(unsubscribe.subscribe_id);
-                    }
-                }
+                self.cleanup_incoming_subscription(unsubscribe.subscribe_id);
                 self.eouts.push_back(EventOut::UnsubscribeReceived {
                     subscribe_id: unsubscribe.subscribe_id,
                 });
@@ -3612,6 +3608,184 @@ mod test {
         })?;
 
         assert_eq!(protocol.poll_write(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn unsubscribe_clears_pending_reusable_publisher_stream() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Track,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 55,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 55,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 1,
+            object_id: 0,
+            send_order: 0,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::OpenBiStream {
+                purpose: StreamPurpose::Data
+            })
+        );
+        assert_eq!(protocol.pending_data_stream_opens.len(), 1);
+
+        let mut unsubscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::UnSubscribe(UnSubscribe { subscribe_id: 7 }),
+            &mut unsubscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 55,
+            data: unsubscribe_bytes.freeze(),
+            fin: false,
+        })?;
+
+        assert!(protocol.pending_data_stream_opens.is_empty());
+        assert!(protocol.publisher_streams.is_empty());
+
+        protocol.handle_event(EventIn::StreamOpened {
+            stream_id: 57,
+            bidi: true,
+            local: true,
+        })?;
+        assert_eq!(protocol.poll_write(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn subscribe_done_clears_active_reusable_publisher_stream_binding() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Track,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 59,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 59,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 1,
+            object_id: 0,
+            send_order: 0,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+        let _ = protocol.poll_write();
+        protocol.handle_event(EventIn::StreamOpened {
+            stream_id: 61,
+            bidi: true,
+            local: true,
+        })?;
+        let _ = protocol.poll_write();
+        assert_eq!(protocol.publisher_streams.len(), 1);
+
+        protocol.handle_write(Command::SubscribeDone {
+            subscribe_id: 7,
+            status_code: 0,
+            reason_phrase: "done".to_string(),
+            final_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        assert!(protocol.pending_data_stream_opens.is_empty());
+        assert!(protocol.publisher_streams.is_empty());
+        assert!(!protocol.local_track_by_subscribe_id.contains_key(&7));
         Ok(())
     }
 
