@@ -1,9 +1,8 @@
 use crate::connection::Connection;
 use crate::driver::SessionDriver;
-use crate::handler::Handler;
-use crate::protocol::{self, Command, EventIn, EventOut, ReadInput, ReadOutput};
+use crate::protocol::{self, Command, EventOut, ReadOutput};
 use crate::Result;
-use retty::transport::Transmit;
+use bytes::Bytes;
 use std::time::Instant;
 
 pub mod config;
@@ -54,73 +53,53 @@ impl Session {
     pub(crate) fn into_transport(self) -> Connection {
         self.driver.into_transport()
     }
-}
 
-impl Handler for Session {
-    type Ein = EventIn;
-    type Eout = EventOut;
-    type Rin = ReadInput;
-    type Rout = ReadOutput;
-    type Win = Command;
-    type Wout = ();
-
-    fn transport_active(&mut self) -> Result<()> {
+    pub(crate) fn on_transport_connected(&mut self) -> Result<()> {
         self.driver.on_transport_connected()
     }
 
-    fn transport_inactive(&mut self) -> Result<()> {
+    pub(crate) fn on_transport_closed(&mut self) -> Result<()> {
         self.driver.on_transport_closed()
     }
 
-    fn handle_read(&mut self, msg: Transmit<Self::Rin>) -> Result<()> {
-        match msg.message {
-            ReadInput::StreamData {
-                stream_id,
-                data,
-                fin,
-            } => self.driver.on_stream_data(stream_id, data, fin),
-            ReadInput::Datagram(bytes) => self.driver.on_datagram(bytes),
-        }
+    pub(crate) fn on_stream_opened(
+        &mut self,
+        stream_id: u32,
+        bidi: bool,
+        local: bool,
+    ) -> Result<()> {
+        self.driver.on_stream_opened(stream_id, bidi, local)
     }
 
-    fn poll_read(&mut self) -> Option<Transmit<Self::Rout>> {
-        self.driver.poll_read().map(|message| Transmit {
-            now: Instant::now(),
-            transport: self.driver.transport().transport(),
-            message,
-        })
+    pub(crate) fn on_stream_closed(&mut self, stream_id: u32) -> Result<()> {
+        self.driver.on_stream_closed(stream_id)
     }
 
-    fn handle_write(&mut self, msg: Transmit<Self::Win>) -> Result<()> {
-        self.driver.handle_command(msg.message)
+    pub(crate) fn on_stream_data(&mut self, stream_id: u32, data: Bytes, fin: bool) -> Result<()> {
+        self.driver.on_stream_data(stream_id, data, fin)
     }
 
-    fn poll_write(&mut self) -> Option<Transmit<Self::Wout>> {
-        None
+    pub(crate) fn on_datagram(&mut self, bytes: Bytes) -> Result<()> {
+        self.driver.on_datagram(bytes)
     }
 
-    fn handle_event(&mut self, evt: Self::Ein) -> Result<()> {
-        match evt {
-            EventIn::TransportConnected => self.driver.on_transport_connected(),
-            EventIn::TransportClosed => self.driver.on_transport_closed(),
-            EventIn::StreamOpened {
-                stream_id,
-                bidi,
-                local,
-            } => self.driver.on_stream_opened(stream_id, bidi, local),
-            EventIn::StreamClosed { stream_id } => self.driver.on_stream_closed(stream_id),
-        }
+    pub(crate) fn handle_command(&mut self, command: Command) -> Result<()> {
+        self.driver.handle_command(command)
     }
 
-    fn poll_event(&mut self) -> Option<Self::Eout> {
+    pub(crate) fn poll_read(&mut self) -> Option<ReadOutput> {
+        self.driver.poll_read()
+    }
+
+    pub(crate) fn poll_event(&mut self) -> Option<EventOut> {
         self.driver.poll_event()
     }
 
-    fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+    pub(crate) fn handle_timeout(&mut self, now: Instant) -> Result<()> {
         self.driver.handle_timeout(now)
     }
 
-    fn poll_timeout(&mut self) -> Option<Instant> {
+    pub(crate) fn poll_timeout(&mut self) -> Option<Instant> {
         self.driver.poll_timeout()
     }
 }
@@ -135,7 +114,6 @@ mod test {
     use crate::message::subscribe::Subscribe;
     use crate::message::subscribe_ok::SubscribeOk;
     use crate::message::{ControlMessage, FilterType, FullSequence, FullTrackName, Role, Version};
-    use retty::transport::{Transmit, TransportContext};
 
     fn client_config() -> config::Config {
         config::Config {
@@ -161,7 +139,7 @@ mod test {
     fn session_wrapper_establishes_client_session_from_handler_surface() -> Result<()> {
         let mut session = Session::new(client_config(), Connection::QUIC);
 
-        session.transport_active()?;
+        session.on_transport_connected()?;
 
         let mut server_setup_bytes = bytes::BytesMut::new();
         let _ = MessageFramer::serialize_control_message(
@@ -172,15 +150,7 @@ mod test {
             &mut server_setup_bytes,
         )?;
 
-        session.handle_read(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: ReadInput::StreamData {
-                stream_id: 0,
-                data: server_setup_bytes.freeze(),
-                fin: false,
-            },
-        })?;
+        session.on_stream_data(0, server_setup_bytes.freeze(), false)?;
 
         assert_eq!(
             session.poll_event(),
@@ -196,7 +166,7 @@ mod test {
     fn session_wrapper_emits_termination_on_transport_inactive() -> Result<()> {
         let mut session = Session::new(client_config(), Connection::QUIC);
 
-        session.transport_inactive()?;
+        session.on_transport_closed()?;
 
         assert_eq!(session.poll_event(), Some(EventOut::SessionTerminated));
         Ok(())
@@ -206,7 +176,7 @@ mod test {
     fn session_wrapper_handles_outgoing_subscribe_round_trip() -> Result<()> {
         let mut session = Session::new(client_config(), Connection::QUIC);
 
-        session.transport_active()?;
+        session.on_transport_connected()?;
 
         let mut server_setup_bytes = bytes::BytesMut::new();
         let _ = MessageFramer::serialize_control_message(
@@ -216,26 +186,14 @@ mod test {
             }),
             &mut server_setup_bytes,
         )?;
-        session.handle_read(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: ReadInput::StreamData {
-                stream_id: 0,
-                data: server_setup_bytes.freeze(),
-                fin: false,
-            },
-        })?;
+        session.on_stream_data(0, server_setup_bytes.freeze(), false)?;
         let _ = session.poll_event();
 
-        session.handle_write(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: Command::Subscribe {
-                track_namespace: "live".to_string(),
-                track_name: "camera".to_string(),
-                filter_type: FilterType::LatestObject,
-                authorization_info: None,
-            },
+        session.handle_command(Command::Subscribe {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::LatestObject,
+            authorization_info: None,
         })?;
 
         let mut subscribe_ok_bytes = bytes::BytesMut::new();
@@ -247,15 +205,7 @@ mod test {
             }),
             &mut subscribe_ok_bytes,
         )?;
-        session.handle_read(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: ReadInput::StreamData {
-                stream_id: 0,
-                data: subscribe_ok_bytes.freeze(),
-                fin: false,
-            },
-        })?;
+        session.on_stream_data(0, subscribe_ok_bytes.freeze(), false)?;
 
         assert_eq!(
             session.poll_event(),
@@ -274,15 +224,11 @@ mod test {
     fn session_wrapper_surfaces_incoming_subscribe_on_registered_track() -> Result<()> {
         let mut session = Session::new(server_config(), Connection::QUIC);
 
-        session.handle_write(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: Command::RegisterLocalTrack {
-                track_namespace: "live".to_string(),
-                track_name: "camera".to_string(),
-                forwarding_preference: ObjectForwardingPreference::Datagram,
-                next_sequence: None,
-            },
+        session.handle_command(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
         })?;
 
         let mut client_setup_bytes = bytes::BytesMut::new();
@@ -295,15 +241,7 @@ mod test {
             }),
             &mut client_setup_bytes,
         )?;
-        session.handle_read(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: ReadInput::StreamData {
-                stream_id: 0,
-                data: client_setup_bytes.freeze(),
-                fin: false,
-            },
-        })?;
+        session.on_stream_data(0, client_setup_bytes.freeze(), false)?;
         let _ = session.poll_event();
 
         let subscribe = Subscribe {
@@ -319,15 +257,7 @@ mod test {
             ControlMessage::Subscribe(subscribe.clone()),
             &mut subscribe_bytes,
         )?;
-        session.handle_read(Transmit {
-            now: Instant::now(),
-            transport: TransportContext::default(),
-            message: ReadInput::StreamData {
-                stream_id: 0,
-                data: subscribe_bytes.freeze(),
-                fin: false,
-            },
-        })?;
+        session.on_stream_data(0, subscribe_bytes.freeze(), false)?;
 
         assert_eq!(
             session.poll_event(),
