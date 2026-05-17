@@ -1,6 +1,7 @@
 use crate::message::object::{ObjectForwardingPreference, ObjectStatus};
 use crate::message::{FullSequence, FullTrackName};
 use crate::session::subscribe_window::{SubscribeWindow, SubscribeWindows};
+use crate::StreamId;
 use log::error;
 use std::collections::HashMap;
 
@@ -187,6 +188,31 @@ impl LocalTrack {
 
     pub fn get_window(&self, subscribe_id: u64) -> Option<&SubscribeWindow> {
         self.windows.get_window(subscribe_id)
+    }
+
+    pub fn get_send_stream(&self, subscribe_id: u64, sequence: FullSequence) -> Option<StreamId> {
+        self.windows
+            .get_window(subscribe_id)
+            .and_then(|window| window.get_stream_for_sequence(sequence).copied())
+    }
+
+    pub fn add_send_stream(
+        &mut self,
+        subscribe_id: u64,
+        sequence: FullSequence,
+        stream_id: StreamId,
+    ) -> crate::Result<()> {
+        let window = self
+            .windows
+            .get_window_mut(subscribe_id)
+            .ok_or_else(|| crate::Error::ErrOther("subscribe window not found".to_string()))?;
+        window.add_stream(sequence.group_id, sequence.object_id, stream_id)
+    }
+
+    pub fn remove_send_stream(&mut self, subscribe_id: u64, sequence: FullSequence) {
+        if let Some(window) = self.windows.get_window_mut(subscribe_id) {
+            window.remove_stream(sequence.group_id, sequence.object_id);
+        }
     }
 
     pub fn forwarding_preference(&self) -> ObjectForwardingPreference {

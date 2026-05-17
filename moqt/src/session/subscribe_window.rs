@@ -267,6 +267,10 @@ impl SubscribeWindows {
     pub fn get_window(&self, subscribe_id: u64) -> Option<&SubscribeWindow> {
         self.windows.get(&subscribe_id)
     }
+
+    pub fn get_window_mut(&mut self, subscribe_id: u64) -> Option<&mut SubscribeWindow> {
+        self.windows.get_mut(&subscribe_id)
+    }
 }
 
 #[cfg(test)]
