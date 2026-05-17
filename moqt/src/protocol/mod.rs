@@ -789,6 +789,13 @@ impl SessionCore {
                     ));
                     return Ok(());
                 }
+                for local_track in self.local_tracks.values_mut() {
+                    if local_track.full_track_name().track_namespace
+                        == announce_cancel.track_namespace
+                    {
+                        local_track.set_announce_cancel();
+                    }
+                }
                 self.eouts.push_back(EventOut::AnnounceCancelled {
                     track_namespace: announce_cancel.track_namespace,
                 });
@@ -806,6 +813,17 @@ impl SessionCore {
                         "received duplicate SUBSCRIBE for subscribe_id {}",
                         subscribe.subscribe_id
                     ));
+                    return Ok(());
+                }
+                if self
+                    .local_tracks
+                    .get(&FullTrackName::new(
+                        subscribe.track_namespace.clone(),
+                        subscribe.track_name.clone(),
+                    ))
+                    .is_some_and(LocalTrack::canceled)
+                {
+                    self.close_with_protocol_violation("received SUBSCRIBE for canceled track");
                     return Ok(());
                 }
                 self.incoming_subscribes.insert(
@@ -1917,6 +1935,12 @@ mod test {
     #[test]
     fn client_receives_announce_ok_and_announce_cancel() -> Result<()> {
         let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
         protocol.handle_read(ReadInput::StreamData {
             stream_id: 20,
             data: {
@@ -1975,6 +1999,93 @@ mod test {
             protocol.poll_event(),
             Some(EventOut::AnnounceCancelled {
                 track_namespace: "live".to_string(),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn subscribe_after_announce_cancel_closes_session() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: None,
+        })?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Announce {
+            track_namespace: "live".to_string(),
+            authorization_info: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut announce_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::AnnounceOk(AnnounceOk {
+                track_namespace: "live".to_string(),
+            }),
+            &mut announce_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: announce_ok_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        let mut announce_cancel_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::AnnounceCancel(AnnounceCancel {
+                track_namespace: "live".to_string(),
+            }),
+            &mut announce_cancel_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: announce_cancel_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 3,
+                track_alias: 7,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::LatestObject,
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::Close {
+                code: 1,
+                reason: "received SUBSCRIBE for canceled track".to_string(),
             })
         );
         Ok(())
