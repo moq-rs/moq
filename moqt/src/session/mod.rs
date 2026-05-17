@@ -1,191 +1,126 @@
 use crate::connection::Connection;
+use crate::driver::SessionDriver;
 use crate::handler::Handler;
-use crate::message::announce_error::AnnounceErrorReason;
-use crate::message::client_setup::ClientSetup;
-use crate::message::object::ObjectForwardingPreference;
-use crate::message::subscribe::Subscribe;
-use crate::message::{ControlMessage, FullTrackName, Role};
-use crate::session::config::{Config, Perspective};
-use crate::session::local_track::LocalTrack;
-use crate::session::remote_track::RemoteTrack;
-use crate::session::stream::{Stream, StreamState};
-use crate::StreamId;
-use crate::{Error, Result};
-use log::info;
+use crate::protocol::{self, Command, EventIn, EventOut, ReadInput, ReadOutput};
+use crate::Result;
 use retty::transport::Transmit;
-use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-mod config;
+pub mod config;
 pub(crate) mod local_track;
 pub(crate) mod remote_track;
-mod stream;
 mod subscribe_window;
 
-// If |error_message| is none, the ANNOUNCE was successful.
-pub type OutgoingAnnounceCallback = fn(track_namespace: String, error: Option<AnnounceErrorReason>);
-
-/// Indexed by subscribe_id.
-pub struct ActiveSubscribe {
-    message: Subscribe,
-    // The forwarding preference of the first received object, which all
-    // subsequent objects must match.
-    forwarding_preference: Option<ObjectForwardingPreference>,
-    // If true, an object has arrived for the subscription before SUBSCRIBE_OK
-    // arrived.
-    received_object: bool,
+impl From<config::Perspective> for protocol::Perspective {
+    fn from(value: config::Perspective) -> Self {
+        match value {
+            config::Perspective::Server => Self::Server,
+            config::Perspective::Client => Self::Client,
+        }
+    }
 }
 
-pub struct Session {
-    config: Config,
-    conn: Connection,
-    control_stream_id: Option<StreamId>,
-    streams: HashMap<StreamId, StreamState>,
+impl From<config::Config> for protocol::Config {
+    fn from(value: config::Config) -> Self {
+        Self {
+            version: value.version,
+            perspective: value.perspective.into(),
+            use_web_transport: value.use_web_transport,
+            path: value.path,
+            deliver_partial_objects: value.deliver_partial_objects,
+        }
+    }
+}
 
-    // All the tracks the session is subscribed to, indexed by track_alias.
-    // Multiple subscribes to the same track are recorded in a single
-    // subscription.
-    remote_tracks: HashMap<u64, RemoteTrack>,
-    // Look up aliases for remote tracks by name
-    remote_track_aliases: HashMap<FullTrackName, u64>,
-    next_remote_track_alias: u64,
-
-    // All the tracks the peer can subscribe to.
-    local_tracks: HashMap<FullTrackName, LocalTrack>,
-    local_track_by_subscribe_id: HashMap<u64, FullTrackName>,
-    // This is only used to check for track_alias collisions.
-    used_track_aliases: HashSet<u64>,
-    next_local_track_alias: u64,
-
-    // Outgoing SUBSCRIBEs that have not received SUBSCRIBE_OK or SUBSCRIBE_ERROR.
-    active_subscribes: HashMap<u64, ActiveSubscribe>,
-    next_subscribe_id: u64,
-
-    // Indexed by track namespace.
-    pending_outgoing_announces: HashMap<String, OutgoingAnnounceCallback>,
-
-    // The role the peer advertised in its SETUP message. Initialize it to avoid
-    // an uninitialized value if no SETUP arrives or it arrives with no Role
-    // parameter, and other checks have changed/been disabled.
-    peer_role: Role,
+pub(crate) struct Session {
+    driver: SessionDriver<Connection>,
 }
 
 impl Session {
-    pub fn new(config: Config, conn: Connection) -> Self {
+    pub(crate) fn new(config: config::Config, conn: Connection) -> Self {
         Self {
-            config,
-            conn,
-            control_stream_id: None,
-            streams: HashMap::new(),
-            remote_tracks: Default::default(),
-            remote_track_aliases: Default::default(),
-            next_remote_track_alias: 0,
-            local_tracks: Default::default(),
-            local_track_by_subscribe_id: Default::default(),
-            used_track_aliases: Default::default(),
-            next_local_track_alias: 0,
-            active_subscribes: Default::default(),
-            next_subscribe_id: 0,
-            pending_outgoing_announces: Default::default(),
-            peer_role: Default::default(),
+            driver: SessionDriver::new(config.into(), conn),
         }
     }
 
-    fn stream(&mut self, stream_id: StreamId) -> Result<Stream<'_>> {
-        if !self.streams.contains_key(&stream_id) {
-            Err(Error::ErrStreamNotExisted)
-        } else {
-            Ok(Stream {
-                stream_id,
-                session: self,
-            })
-        }
+    pub(crate) fn transport(&self) -> &Connection {
+        self.driver.transport()
     }
 
-    fn get_control_stream(&mut self) -> Result<Stream<'_>> {
-        if let Some(control_stream_id) = self.control_stream_id.as_ref() {
-            self.stream(*control_stream_id)
-        } else {
-            Err(Error::ErrStreamNotExisted)
-        }
+    pub(crate) fn transport_mut(&mut self) -> &mut Connection {
+        self.driver.transport_mut()
     }
 
-    fn send_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
-        let mut control_stream = self.get_control_stream()?;
-        control_stream.send_control_message(control_message)
+    pub(crate) fn into_transport(self) -> Connection {
+        self.driver.into_transport()
     }
 }
 
 impl Handler for Session {
-    type Ein = ();
-    type Eout = ();
-    type Rin = ();
-    type Rout = ();
-    type Win = ();
+    type Ein = EventIn;
+    type Eout = EventOut;
+    type Rin = ReadInput;
+    type Rout = ReadOutput;
+    type Win = Command;
     type Wout = ();
 
     fn transport_active(&mut self) -> Result<()> {
-        info!("{:?} Underlying session ready", self.config.perspective);
-        if self.config.perspective == Perspective::Server {
-            return Ok(());
-        }
-
-        let control_stream_id = self.conn.open_bi_stream()?;
-        let control_stream = StreamState::new(
-            self.config.clone(),
-            control_stream_id,
-            Some(true),
-            self.conn.transport(),
-        );
-        self.streams.insert(control_stream_id, control_stream);
-        self.control_stream_id = Some(control_stream_id);
-        let mut client_setup = ClientSetup {
-            supported_versions: vec![self.config.version],
-            role: Some(Role::PubSub),
-            path: None,
-            uses_web_transport: self.config.use_web_transport,
-        };
-        if !self.config.use_web_transport {
-            client_setup.path = Some(self.config.path.clone());
-        }
-
-        info!("{:?} Send the SETUP message", self.config.perspective);
-        self.send_control_message(ControlMessage::ClientSetup(client_setup))
+        self.driver.on_transport_connected()
     }
 
     fn transport_inactive(&mut self) -> Result<()> {
-        todo!()
+        self.driver.on_transport_closed()
     }
 
-    fn handle_read(&mut self, _msg: Transmit<Self::Rin>) -> Result<()> {
-        todo!()
+    fn handle_read(&mut self, msg: Transmit<Self::Rin>) -> Result<()> {
+        match msg.message {
+            ReadInput::StreamData {
+                stream_id,
+                data,
+                fin,
+            } => self.driver.on_stream_data(stream_id, data, fin),
+            ReadInput::Datagram(bytes) => self.driver.on_datagram(bytes),
+        }
     }
 
     fn poll_read(&mut self) -> Option<Transmit<Self::Rout>> {
-        todo!()
+        self.driver.poll_read().map(|message| Transmit {
+            now: Instant::now(),
+            transport: self.driver.transport().transport(),
+            message,
+        })
     }
 
-    fn handle_write(&mut self, _msg: Transmit<Self::Win>) -> Result<()> {
-        todo!()
+    fn handle_write(&mut self, msg: Transmit<Self::Win>) -> Result<()> {
+        self.driver.handle_command(msg.message)
     }
 
     fn poll_write(&mut self) -> Option<Transmit<Self::Wout>> {
-        todo!()
+        None
     }
 
-    fn handle_event(&mut self, _evt: Self::Ein) -> Result<()> {
-        todo!()
+    fn handle_event(&mut self, evt: Self::Ein) -> Result<()> {
+        match evt {
+            EventIn::TransportConnected => self.driver.on_transport_connected(),
+            EventIn::TransportClosed => self.driver.on_transport_closed(),
+            EventIn::StreamOpened {
+                stream_id,
+                bidi,
+                local,
+            } => self.driver.on_stream_opened(stream_id, bidi, local),
+            EventIn::StreamClosed { stream_id } => self.driver.on_stream_closed(stream_id),
+        }
     }
 
     fn poll_event(&mut self) -> Option<Self::Eout> {
-        todo!()
+        self.driver.poll_event()
     }
 
-    fn handle_timeout(&mut self, _now: Instant) -> Result<()> {
-        todo!()
+    fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+        self.driver.handle_timeout(now)
     }
 
     fn poll_timeout(&mut self) -> Option<Instant> {
-        todo!()
+        self.driver.poll_timeout()
     }
 }
