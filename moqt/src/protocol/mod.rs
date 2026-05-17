@@ -3,6 +3,7 @@ use crate::message::announce_cancel::AnnounceCancel;
 use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
+use crate::message::go_away::GoAway;
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_parser::{MessageParser, MessageParserEvent};
 use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
@@ -12,6 +13,8 @@ use crate::message::subscribe_done::SubscribeDone;
 use crate::message::subscribe_error::SubscribeError;
 use crate::message::subscribe_ok::SubscribeOk;
 use crate::message::subscribe_update::SubscribeUpdate;
+use crate::message::track_status::TrackStatus;
+use crate::message::track_status_request::TrackStatusRequest;
 use crate::message::unannounce::UnAnnounce;
 use crate::message::unsubscribe::UnSubscribe;
 use crate::message::{ControlMessage, FilterType, FullSequence, FullTrackName, Role, Version};
@@ -137,6 +140,19 @@ pub(crate) enum Command {
     AnnounceCancel {
         track_namespace: String,
     },
+    TrackStatusRequest {
+        track_namespace: String,
+        track_name: String,
+    },
+    TrackStatus {
+        track_namespace: String,
+        track_name: String,
+        status_code: u64,
+        last_group_object: FullSequence,
+    },
+    GoAway {
+        new_session_uri: String,
+    },
     Subscribe {
         track_namespace: String,
         track_name: String,
@@ -214,6 +230,11 @@ pub(crate) enum EventOut {
     },
     AnnounceCancelled {
         track_namespace: String,
+    },
+    TrackStatusRequested(TrackStatusRequest),
+    TrackStatusReceived(TrackStatus),
+    GoAwayReceived {
+        new_session_uri: String,
     },
     SubscribeReceived(Subscribe),
     SubscribeAccepted {
@@ -978,10 +999,8 @@ impl SessionCore {
                     );
                     return Ok(());
                 }
-                self.close_with_protocol_violation(format!(
-                    "unsupported control message: {:?}",
-                    track_status_request
-                ));
+                self.eouts
+                    .push_back(EventOut::TrackStatusRequested(track_status_request));
             }
             ControlMessage::TrackStatus(track_status) => {
                 if self.state != SessionState::Established {
@@ -990,20 +1009,17 @@ impl SessionCore {
                     );
                     return Ok(());
                 }
-                self.close_with_protocol_violation(format!(
-                    "unsupported control message: {:?}",
-                    track_status
-                ));
+                self.eouts
+                    .push_back(EventOut::TrackStatusReceived(track_status));
             }
             ControlMessage::GoAway(go_away) => {
                 if self.state != SessionState::Established {
                     self.close_with_protocol_violation("received GOAWAY before session setup");
                     return Ok(());
                 }
-                self.close_with_protocol_violation(format!(
-                    "unsupported control message: {:?}",
-                    go_away
-                ));
+                self.eouts.push_back(EventOut::GoAwayReceived {
+                    new_session_uri: go_away.new_session_uri,
+                });
             }
         }
         Ok(())
@@ -1176,6 +1192,48 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 self.send_control_message(ControlMessage::AnnounceCancel(AnnounceCancel {
                     track_namespace,
                 }))?;
+            }
+            Command::TrackStatusRequest {
+                track_namespace,
+                track_name,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send TRACK_STATUS_REQUEST before session established".to_string(),
+                    ));
+                }
+                self.send_control_message(ControlMessage::TrackStatusRequest(
+                    TrackStatusRequest {
+                        track_namespace,
+                        track_name,
+                    },
+                ))?;
+            }
+            Command::TrackStatus {
+                track_namespace,
+                track_name,
+                status_code,
+                last_group_object,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send TRACK_STATUS before session established".to_string(),
+                    ));
+                }
+                self.send_control_message(ControlMessage::TrackStatus(TrackStatus {
+                    track_namespace,
+                    track_name,
+                    status_code,
+                    last_group_object,
+                }))?;
+            }
+            Command::GoAway { new_session_uri } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send GOAWAY before session established".to_string(),
+                    ));
+                }
+                self.send_control_message(ControlMessage::GoAway(GoAway { new_session_uri }))?;
             }
             Command::Subscribe {
                 track_namespace,
@@ -1993,6 +2051,179 @@ mod test {
             protocol.poll_event(),
             Some(EventOut::UnannounceReceived {
                 track_namespace: "live".to_string(),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn client_sends_track_status_request_after_session_established() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 24,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::TrackStatusRequest {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+        })?;
+
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected track status request bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::TrackStatusRequest(
+                request,
+            ))) => {
+                assert_eq!(request.track_namespace, "live");
+                assert_eq!(request.track_name, "camera");
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn server_receives_track_status_request_and_sends_track_status() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 26,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut request_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::TrackStatusRequest(TrackStatusRequest {
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+            }),
+            &mut request_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 26,
+            data: request_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::TrackStatusRequested(TrackStatusRequest {
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+            }))
+        );
+
+        protocol.handle_write(Command::TrackStatus {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            status_code: 0,
+            last_group_object: FullSequence::new(7, 2),
+        })?;
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected TRACK_STATUS bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::TrackStatus(status))) => {
+                assert_eq!(status.track_namespace, "live");
+                assert_eq!(status.track_name, "camera");
+                assert_eq!(status.status_code, 0);
+                assert_eq!(status.last_group_object, FullSequence::new(7, 2));
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn client_receives_track_status_and_goaway() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 28,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        let mut status_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::TrackStatus(TrackStatus {
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                status_code: 0,
+                last_group_object: FullSequence::new(4, 9),
+            }),
+            &mut status_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 28,
+            data: status_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::TrackStatusReceived(TrackStatus {
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                status_code: 0,
+                last_group_object: FullSequence::new(4, 9),
+            }))
+        );
+
+        let mut goaway_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::GoAway(GoAway {
+                new_session_uri: "moq://next".to_string(),
+            }),
+            &mut goaway_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 28,
+            data: goaway_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::GoAwayReceived {
+                new_session_uri: "moq://next".to_string(),
             })
         );
         Ok(())
