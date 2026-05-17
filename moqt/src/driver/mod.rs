@@ -1,10 +1,13 @@
+use crate::connection::Connection;
 use crate::protocol::{
-    Command, Config, EventIn, EventOut, ReadInput, SessionCore, StreamPurpose, WriteOutput,
+    Command, Config, EventIn, EventOut, ReadInput, ReadOutput, SessionCore, StreamPurpose,
+    WriteOutput,
 };
 use crate::{Result, StreamId};
 use bytes::{Bytes, BytesMut};
 use sansio::Protocol;
 use std::collections::VecDeque;
+use std::time::Instant;
 
 pub(crate) trait SessionTransport {
     fn open_bi_stream(&mut self, purpose: StreamPurpose) -> Result<StreamId>;
@@ -13,9 +16,30 @@ pub(crate) trait SessionTransport {
     fn close(&mut self, code: u64, reason: String) -> Result<()>;
 }
 
+impl SessionTransport for Connection {
+    fn open_bi_stream(&mut self, _purpose: StreamPurpose) -> Result<StreamId> {
+        self.open_bi_stream()
+    }
+
+    fn send_stream(&mut self, stream_id: StreamId, bytes: BytesMut, _fin: bool) -> Result<()> {
+        let _ = self.send_stream_data(stream_id, &bytes)?;
+        Ok(())
+    }
+
+    fn send_datagram(&mut self, bytes: Bytes) -> Result<()> {
+        let _ = self.send_datagram(&bytes)?;
+        Ok(())
+    }
+
+    fn close(&mut self, code: u64, reason: String) -> Result<()> {
+        self.close_with_error(code, &reason)
+    }
+}
+
 pub(crate) struct SessionDriver<T> {
     protocol: SessionCore,
     transport: T,
+    reads: VecDeque<ReadOutput>,
     events: VecDeque<EventOut>,
 }
 
@@ -24,6 +48,7 @@ impl<T: SessionTransport> SessionDriver<T> {
         Self {
             protocol: SessionCore::new(config),
             transport,
+            reads: VecDeque::new(),
             events: VecDeque::new(),
         }
     }
@@ -34,6 +59,10 @@ impl<T: SessionTransport> SessionDriver<T> {
 
     pub(crate) fn transport_mut(&mut self) -> &mut T {
         &mut self.transport
+    }
+
+    pub(crate) fn into_transport(self) -> T {
+        self.transport
     }
 
     pub(crate) fn on_transport_connected(&mut self) -> Result<()> {
@@ -90,6 +119,19 @@ impl<T: SessionTransport> SessionDriver<T> {
         self.flush()
     }
 
+    pub(crate) fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+        self.protocol.handle_timeout(now)?;
+        self.flush()
+    }
+
+    pub(crate) fn poll_timeout(&mut self) -> Option<Instant> {
+        self.protocol.poll_timeout()
+    }
+
+    pub(crate) fn poll_read(&mut self) -> Option<ReadOutput> {
+        self.reads.pop_front()
+    }
+
     pub(crate) fn poll_event(&mut self) -> Option<EventOut> {
         self.events.pop_front()
     }
@@ -117,6 +159,11 @@ impl<T: SessionTransport> SessionDriver<T> {
                     WriteOutput::SendDatagram(bytes) => self.transport.send_datagram(bytes)?,
                     WriteOutput::Close { code, reason } => self.transport.close(code, reason)?,
                 }
+            }
+
+            while let Some(read) = self.protocol.poll_read() {
+                progressed = true;
+                self.reads.push_back(read);
             }
 
             while let Some(event) = self.protocol.poll_event() {
