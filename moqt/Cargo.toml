@@ -14,7 +14,7 @@ bytes = "1.6.0"
 thiserror = "2.0.4"
 log = "0.4.22"
 retty = "0.29.0"
-sansio = { path = "../../sansio" }
+sansio = "1.0.1"
 
 [dev-dependencies]
 rstest = "0.23.0"

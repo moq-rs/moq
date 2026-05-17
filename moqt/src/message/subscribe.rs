@@ -89,6 +89,8 @@ impl Serializer for Subscribe {
                 authorization_info.to_string(),
             )?;
             l += parameters.serialize(w)?;
+        } else {
+            l += 0u64.serialize(w)?;
         }
 
         Ok(l)
