@@ -1060,13 +1060,10 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                             self.wouts
                                 .push_back(WriteOutput::SendDatagram(bytes.freeze()));
                         }
-                        ObjectForwardingPreference::Object => {
+                        ObjectForwardingPreference::Object
+                        | ObjectForwardingPreference::Track
+                        | ObjectForwardingPreference::Group => {
                             self.queue_object_stream(object_header, payload.clone(), true)?;
-                        }
-                        ObjectForwardingPreference::Track | ObjectForwardingPreference::Group => {
-                            return Err(crate::Error::ErrOther(
-                                "track/group stream publishing is not implemented yet".to_string(),
-                            ));
                         }
                     }
                 }
@@ -2375,6 +2372,230 @@ mod test {
                         object_status: ObjectStatus::Normal,
                         object_forwarding_preference: ObjectForwardingPreference::Object,
                         object_payload_length: None,
+                    }
+                );
+                assert_eq!(payload, Bytes::from_static(b"frame"));
+                assert!(event_fin);
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn server_publishes_track_stream_for_registered_track() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Track,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 65,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 65,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 1,
+            object_id: 2,
+            send_order: 3,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::OpenBiStream {
+                purpose: StreamPurpose::Data
+            })
+        );
+
+        protocol.handle_event(EventIn::StreamOpened {
+            stream_id: 67,
+            bidi: true,
+            local: true,
+        })?;
+
+        let Some(WriteOutput::SendStream {
+            stream_id,
+            bytes,
+            fin,
+        }) = protocol.poll_write()
+        else {
+            panic!("expected track stream bytes");
+        };
+        assert_eq!(stream_id, 67);
+        assert!(fin);
+
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), true);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+                assert_eq!(
+                    object_header,
+                    ObjectHeader {
+                        subscribe_id: 7,
+                        track_alias: 9,
+                        group_id: 1,
+                        object_id: 2,
+                        object_send_order: 3,
+                        object_status: ObjectStatus::Normal,
+                        object_forwarding_preference: ObjectForwardingPreference::Track,
+                        object_payload_length: Some(5),
+                    }
+                );
+                assert_eq!(payload, Bytes::from_static(b"frame"));
+                assert!(event_fin);
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn server_publishes_group_stream_for_registered_track() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Group,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 69,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 69,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 1,
+            object_id: 2,
+            send_order: 3,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::OpenBiStream {
+                purpose: StreamPurpose::Data
+            })
+        );
+
+        protocol.handle_event(EventIn::StreamOpened {
+            stream_id: 71,
+            bidi: true,
+            local: true,
+        })?;
+
+        let Some(WriteOutput::SendStream {
+            stream_id,
+            bytes,
+            fin,
+        }) = protocol.poll_write()
+        else {
+            panic!("expected group stream bytes");
+        };
+        assert_eq!(stream_id, 71);
+        assert!(fin);
+
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), true);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+                assert_eq!(
+                    object_header,
+                    ObjectHeader {
+                        subscribe_id: 7,
+                        track_alias: 9,
+                        group_id: 1,
+                        object_id: 2,
+                        object_send_order: 3,
+                        object_status: ObjectStatus::Normal,
+                        object_forwarding_preference: ObjectForwardingPreference::Group,
+                        object_payload_length: Some(5),
                     }
                 );
                 assert_eq!(payload, Bytes::from_static(b"frame"));
