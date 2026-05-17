@@ -84,6 +84,11 @@ struct DataStreamState {
     partial_object: Option<(ObjectHeader, BytesMut)>,
 }
 
+struct PendingDataStreamOpen {
+    bytes: BytesMut,
+    fin: bool,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum Command {
     Close {
@@ -229,6 +234,7 @@ pub(crate) struct SessionCore {
     active_outgoing_subscribes: HashMap<u64, Subscription>,
     incoming_subscribes: HashMap<u64, IncomingSubscribe>,
     data_streams: HashMap<StreamId, DataStreamState>,
+    pending_data_stream_opens: VecDeque<PendingDataStreamOpen>,
     next_remote_track_alias: u64,
     next_subscribe_id: u64,
     routs: VecDeque<ReadOutput>,
@@ -252,6 +258,7 @@ impl SessionCore {
             active_outgoing_subscribes: HashMap::new(),
             incoming_subscribes: HashMap::new(),
             data_streams: HashMap::new(),
+            pending_data_stream_opens: VecDeque::new(),
             next_remote_track_alias: 0,
             next_subscribe_id: 0,
             routs: VecDeque::new(),
@@ -451,6 +458,22 @@ impl SessionCore {
             }
         };
         self.on_object_message(0, object_header, payload, true);
+    }
+
+    fn queue_object_stream(
+        &mut self,
+        object_header: ObjectHeader,
+        payload: Bytes,
+        fin: bool,
+    ) -> Result<()> {
+        let mut bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_object(object_header, true, payload, &mut bytes)?;
+        self.pending_data_stream_opens
+            .push_back(PendingDataStreamOpen { bytes, fin });
+        self.wouts.push_back(WriteOutput::OpenBiStream {
+            purpose: StreamPurpose::Data,
+        });
+        Ok(())
     }
 
     fn cleanup_incoming_subscription(&mut self, subscribe_id: u64) {
@@ -991,50 +1014,62 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 payload,
             } => {
                 let full_track_name = FullTrackName::new(track_namespace, track_name);
-                let local_track = self.local_tracks.get_mut(&full_track_name).ok_or_else(|| {
-                    crate::Error::ErrOther(format!(
-                        "cannot publish unknown track {}:{}",
-                        full_track_name.track_namespace, full_track_name.track_name
-                    ))
-                })?;
-                let forwarding_preference = local_track.forwarding_preference();
-                if forwarding_preference != ObjectForwardingPreference::Datagram {
-                    return Err(crate::Error::ErrOther(
-                        "only datagram publishing is implemented in SessionCore".to_string(),
-                    ));
-                }
-                let track_alias = local_track.track_alias().ok_or_else(|| {
-                    crate::Error::ErrOther(format!(
-                        "cannot publish unsubscribed track {}:{}",
-                        full_track_name.track_namespace, full_track_name.track_name
-                    ))
-                })?;
                 let sequence = FullSequence::new(group_id, object_id);
-                let subscribe_ids = local_track
-                    .should_send(sequence)
-                    .into_iter()
-                    .map(|window| window.subscribe_id())
-                    .collect::<Vec<_>>();
+                let (forwarding_preference, track_alias, subscribe_ids) = {
+                    let local_track =
+                        self.local_tracks.get_mut(&full_track_name).ok_or_else(|| {
+                            crate::Error::ErrOther(format!(
+                                "cannot publish unknown track {}:{}",
+                                full_track_name.track_namespace, full_track_name.track_name
+                            ))
+                        })?;
+                    let forwarding_preference = local_track.forwarding_preference();
+                    let track_alias = local_track.track_alias().ok_or_else(|| {
+                        crate::Error::ErrOther(format!(
+                            "cannot publish unsubscribed track {}:{}",
+                            full_track_name.track_namespace, full_track_name.track_name
+                        ))
+                    })?;
+                    let subscribe_ids = local_track
+                        .should_send(sequence)
+                        .into_iter()
+                        .map(|window| window.subscribe_id())
+                        .collect::<Vec<_>>();
+                    local_track.sent_sequence(sequence, status);
+                    (forwarding_preference, track_alias, subscribe_ids)
+                };
                 for subscribe_id in subscribe_ids {
-                    let mut bytes = BytesMut::new();
-                    let _ = MessageFramer::serialize_object_datagram(
-                        ObjectHeader {
-                            subscribe_id,
-                            track_alias,
-                            group_id,
-                            object_id,
-                            object_send_order: send_order,
-                            object_status: status,
-                            object_forwarding_preference: forwarding_preference,
-                            object_payload_length: None,
-                        },
-                        payload.clone(),
-                        &mut bytes,
-                    )?;
-                    self.wouts
-                        .push_back(WriteOutput::SendDatagram(bytes.freeze()));
+                    let object_header = ObjectHeader {
+                        subscribe_id,
+                        track_alias,
+                        group_id,
+                        object_id,
+                        object_send_order: send_order,
+                        object_status: status,
+                        object_forwarding_preference: forwarding_preference,
+                        object_payload_length: None,
+                    };
+                    match forwarding_preference {
+                        ObjectForwardingPreference::Datagram => {
+                            let mut bytes = BytesMut::new();
+                            let _ = MessageFramer::serialize_object_datagram(
+                                object_header,
+                                payload.clone(),
+                                &mut bytes,
+                            )?;
+                            self.wouts
+                                .push_back(WriteOutput::SendDatagram(bytes.freeze()));
+                        }
+                        ObjectForwardingPreference::Object => {
+                            self.queue_object_stream(object_header, payload.clone(), true)?;
+                        }
+                        ObjectForwardingPreference::Track | ObjectForwardingPreference::Group => {
+                            return Err(crate::Error::ErrOther(
+                                "track/group stream publishing is not implemented yet".to_string(),
+                            ));
+                        }
+                    }
                 }
-                local_track.sent_sequence(sequence, status);
             }
             Command::Unsubscribe { subscribe_id } => {
                 if self.state != SessionState::Established {
@@ -1085,6 +1120,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 self.active_outgoing_subscribes.clear();
                 self.incoming_subscribes.clear();
                 self.data_streams.clear();
+                self.pending_data_stream_opens.clear();
                 self.eouts.push_back(EventOut::SessionTerminated);
             }
             EventIn::StreamOpened {
@@ -1099,6 +1135,14 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 {
                     self.ensure_control_stream(stream_id);
                     self.send_client_setup(stream_id)?;
+                } else if local && bidi {
+                    if let Some(pending_open) = self.pending_data_stream_opens.pop_front() {
+                        self.wouts.push_back(WriteOutput::SendStream {
+                            stream_id,
+                            bytes: pending_open.bytes,
+                            fin: pending_open.fin,
+                        });
+                    }
                 }
             }
             EventIn::StreamClosed { stream_id } => {
@@ -2226,6 +2270,118 @@ mod test {
         })?;
 
         assert_eq!(protocol.poll_write(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn server_publishes_object_stream_for_registered_track() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Object,
+            next_sequence: None,
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 61,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 61,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 0,
+            object_id: 0,
+            send_order: 0,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"frame"),
+        })?;
+
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::OpenBiStream {
+                purpose: StreamPurpose::Data
+            })
+        );
+
+        protocol.handle_event(EventIn::StreamOpened {
+            stream_id: 63,
+            bidi: true,
+            local: true,
+        })?;
+
+        let Some(WriteOutput::SendStream {
+            stream_id,
+            bytes,
+            fin,
+        }) = protocol.poll_write()
+        else {
+            panic!("expected object stream bytes");
+        };
+        assert_eq!(stream_id, 63);
+        assert!(fin);
+
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), true);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+                assert_eq!(
+                    object_header,
+                    ObjectHeader {
+                        subscribe_id: 7,
+                        track_alias: 9,
+                        group_id: 0,
+                        object_id: 0,
+                        object_send_order: 0,
+                        object_status: ObjectStatus::Normal,
+                        object_forwarding_preference: ObjectForwardingPreference::Object,
+                        object_payload_length: None,
+                    }
+                );
+                assert_eq!(payload, Bytes::from_static(b"frame"));
+                assert!(event_fin);
+            }
+            _ => panic!("unexpected parser event"),
+        }
         Ok(())
     }
 }
