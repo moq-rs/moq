@@ -690,6 +690,35 @@ impl SessionCore {
                     ));
                     return Ok(());
                 }
+                let Some(full_track_name) = self
+                    .local_track_by_subscribe_id
+                    .get(&subscribe_update.subscribe_id)
+                    .cloned()
+                else {
+                    self.close_with_protocol_violation(format!(
+                        "received SUBSCRIBE_UPDATE for unknown local track subscribe_id {}",
+                        subscribe_update.subscribe_id
+                    ));
+                    return Ok(());
+                };
+                let Some(local_track) = self.local_tracks.get_mut(&full_track_name) else {
+                    self.close_with_protocol_violation(format!(
+                        "received SUBSCRIBE_UPDATE for missing track {}:{}",
+                        full_track_name.track_namespace, full_track_name.track_name
+                    ));
+                    return Ok(());
+                };
+                if !local_track.update_window(
+                    subscribe_update.subscribe_id,
+                    subscribe_update.start_group_object,
+                    subscribe_update.end_group_object,
+                ) {
+                    self.close_with_protocol_violation(format!(
+                        "invalid SUBSCRIBE_UPDATE window for subscribe_id {}",
+                        subscribe_update.subscribe_id
+                    ));
+                    return Ok(());
+                }
                 self.eouts
                     .push_back(EventOut::SubscribeUpdated(subscribe_update));
             }
@@ -1797,6 +1826,196 @@ mod test {
         assert_eq!(
             protocol.poll_event(),
             Some(EventOut::SubscribeUpdated(update))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn subscribe_update_narrows_publisher_window() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: Some(FullSequence::new(10, 0)),
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 81,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteRange(
+                    FullSequence::new(0, 0),
+                    FullSequence::new(9, 9),
+                ),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 81,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut update_bytes = BytesMut::new();
+        let update = SubscribeUpdate {
+            subscribe_id: 7,
+            start_group_object: FullSequence::new(5, 0),
+            end_group_object: Some(FullSequence::new(5, 2)),
+            authorization_info: None,
+        };
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::SubscribeUpdate(update.clone()),
+            &mut update_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 81,
+            data: update_bytes.freeze(),
+            fin: false,
+        })?;
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::SubscribeUpdated(update))
+        );
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 4,
+            object_id: 0,
+            send_order: 0,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"old"),
+        })?;
+        assert_eq!(protocol.poll_write(), None);
+
+        protocol.handle_write(Command::PublishObject {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            group_id: 5,
+            object_id: 1,
+            send_order: 1,
+            status: ObjectStatus::Normal,
+            payload: Bytes::from_static(b"new"),
+        })?;
+        let Some(WriteOutput::SendDatagram(bytes)) = protocol.poll_write() else {
+            panic!("expected updated-window datagram");
+        };
+        let (object_header, payload) = MessageParser::process_datagram(&mut bytes.as_ref())?;
+        assert_eq!(object_header.subscribe_id, 7);
+        assert_eq!(object_header.group_id, 5);
+        assert_eq!(object_header.object_id, 1);
+        assert_eq!(payload, Bytes::from_static(b"new"));
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_subscribe_update_closes_session() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_write(Command::RegisterLocalTrack {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            forwarding_preference: ObjectForwardingPreference::Datagram,
+            next_sequence: Some(FullSequence::new(10, 0)),
+        })?;
+
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 83,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut subscribe_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Subscribe(Subscribe {
+                subscribe_id: 7,
+                track_alias: 9,
+                track_namespace: "live".to_string(),
+                track_name: "camera".to_string(),
+                filter_type: FilterType::AbsoluteRange(
+                    FullSequence::new(5, 0),
+                    FullSequence::new(5, 2),
+                ),
+                authorization_info: None,
+            }),
+            &mut subscribe_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 83,
+            data: subscribe_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+        protocol.handle_write(Command::SubscribeOk {
+            subscribe_id: 7,
+            expires: 60,
+            largest_group_object: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut update_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::SubscribeUpdate(SubscribeUpdate {
+                subscribe_id: 7,
+                start_group_object: FullSequence::new(4, 0),
+                end_group_object: Some(FullSequence::new(6, 0)),
+                authorization_info: None,
+            }),
+            &mut update_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 83,
+            data: update_bytes.freeze(),
+            fin: false,
+        })?;
+
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::Close {
+                code: 1,
+                reason: "invalid SUBSCRIBE_UPDATE window for subscribe_id 7".to_string()
+            })
         );
         Ok(())
     }

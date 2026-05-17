@@ -196,6 +196,17 @@ impl LocalTrack {
             .and_then(|window| window.get_stream_for_sequence(sequence).copied())
     }
 
+    pub fn update_window(
+        &mut self,
+        subscribe_id: u64,
+        start: FullSequence,
+        end: Option<FullSequence>,
+    ) -> bool {
+        self.windows
+            .get_window_mut(subscribe_id)
+            .is_some_and(|window| window.update_start_end(start, end))
+    }
+
     pub fn add_send_stream(
         &mut self,
         subscribe_id: u64,
