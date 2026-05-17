@@ -132,27 +132,24 @@ impl StreamState {
             }
         }
         trace!(
-            "{}",
-            format!(
-                "{:?} Received OBJECT message on stream {} for subscribe_id {} for
+            "{:?} Received OBJECT message on stream {} for subscribe_id {} for
            track alias {} with sequence {}:{} send_order {} forwarding_preference {:?} length {}
            explicit length {} {}",
-                self.config.perspective,
-                self.stream_id,
-                object_header.subscribe_id,
-                object_header.track_alias,
-                object_header.group_id,
-                object_header.object_id,
-                object_header.object_send_order,
-                object_header.object_forwarding_preference,
-                payload.len(),
-                if let Some(&payload_length) = object_header.object_payload_length.as_ref() {
-                    payload_length as i64
-                } else {
-                    -1
-                },
-                if fin { "F" } else { "" },
-            )
+            self.config.perspective,
+            self.stream_id,
+            object_header.subscribe_id,
+            object_header.track_alias,
+            object_header.group_id,
+            object_header.object_id,
+            object_header.object_send_order,
+            object_header.object_forwarding_preference,
+            payload.len(),
+            if let Some(&payload_length) = object_header.object_payload_length.as_ref() {
+                payload_length as i64
+            } else {
+                -1
+            },
+            if fin { "F" } else { "" },
         );
 
         if !self.config.deliver_partial_objects {

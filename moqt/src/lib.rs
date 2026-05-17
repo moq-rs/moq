@@ -5,6 +5,7 @@ mod connection;
 mod error;
 mod handler;
 mod message;
+mod protocol;
 mod serde;
 mod session;
 
