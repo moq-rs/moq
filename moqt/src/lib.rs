@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 mod connection;
+mod driver;
 mod error;
 mod handler;
 mod message;
