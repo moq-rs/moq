@@ -178,6 +178,17 @@ fn public_session_driver_surfaces_session_established() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_session_terminated() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_closed()?;
+
+    assert_eq!(driver.poll_event(), Some(EventOut::SessionTerminated));
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_surfaces_incoming_subscribe() -> moqt::Result<()> {
     let transport = FakeTransport::new(10);
     let mut driver = SessionDriver::new(server_protocol_config(), transport);
