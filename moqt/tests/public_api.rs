@@ -963,22 +963,30 @@ fn public_session_driver_surfaces_request_window_events() -> moqt::Result<()> {
 
     driver.on_stream_data(
         11,
-        encode_control(ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 120 }))?,
+        encode_control(ControlMessage::MaxRequestId(MaxRequestId {
+            max_request_id: 120,
+        }))?,
         false,
     )?;
     driver.on_stream_data(
         11,
-        encode_control(ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 120 }))?,
+        encode_control(ControlMessage::RequestsBlocked(RequestsBlocked {
+            max_request_id: 120,
+        }))?,
         false,
     )?;
 
     assert_eq!(
         driver.poll_event(),
-        Some(EventOut::MaxRequestIdReceived { max_request_id: 120 })
+        Some(EventOut::MaxRequestIdReceived {
+            max_request_id: 120
+        })
     );
     assert_eq!(
         driver.poll_event(),
-        Some(EventOut::RequestsBlockedReceived { max_request_id: 120 })
+        Some(EventOut::RequestsBlockedReceived {
+            max_request_id: 120
+        })
     );
     Ok(())
 }
@@ -1018,10 +1026,12 @@ fn public_session_driver_buffers_fetch_object_until_fetch_ok() -> moqt::Result<(
         object_forwarding_preference: ObjectForwardingPreference::Track,
         object_payload_length: Some(3),
     };
+    let extension_headers = Bytes::from_static(b"ext");
     let mut stream = BytesMut::new();
     MessageFramer::serialize_fetch_object(
         object_header,
         true,
+        extension_headers.clone(),
         Bytes::from_static(b"xyz"),
         &mut stream,
     )?;
@@ -1053,6 +1063,7 @@ fn public_session_driver_buffers_fetch_object_until_fetch_ok() -> moqt::Result<(
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             fragment: RemoteTrackOnObjectFragment {
                 object_header,
+                extension_headers,
                 payload: Bytes::from_static(b"xyz"),
                 fin: true,
             },
@@ -1110,12 +1121,14 @@ fn public_session_driver_buffers_multiple_fetch_objects_until_fetch_ok() -> moqt
     MessageFramer::serialize_fetch_object_with_previous(
         first,
         None,
+        Bytes::new(),
         Bytes::from_static(b"one"),
         &mut stream,
     )?;
     MessageFramer::serialize_fetch_object_with_previous(
         second,
         Some(first),
+        Bytes::new(),
         Bytes::from_static(b"two"),
         &mut stream,
     )?;
@@ -1147,6 +1160,7 @@ fn public_session_driver_buffers_multiple_fetch_objects_until_fetch_ok() -> moqt
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             fragment: RemoteTrackOnObjectFragment {
                 object_header: first,
+                extension_headers: Bytes::new(),
                 payload: Bytes::from_static(b"one"),
                 fin: true,
             },
@@ -1158,6 +1172,7 @@ fn public_session_driver_buffers_multiple_fetch_objects_until_fetch_ok() -> moqt
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             fragment: RemoteTrackOnObjectFragment {
                 object_header: second,
+                extension_headers: Bytes::new(),
                 payload: Bytes::from_static(b"two"),
                 fin: true,
             },
@@ -1301,6 +1316,7 @@ fn public_session_driver_surfaces_incoming_object_datagram() -> moqt::Result<()>
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             fragment: RemoteTrackOnObjectFragment {
                 object_header,
+                extension_headers: Bytes::new(),
                 payload: Bytes::from_static(b"xyz"),
                 fin: true,
             },
@@ -1364,6 +1380,7 @@ fn public_session_driver_surfaces_incoming_object_stream() -> moqt::Result<()> {
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             fragment: RemoteTrackOnObjectFragment {
                 object_header,
+                extension_headers: Bytes::new(),
                 payload: Bytes::from_static(b"xyz"),
                 fin: true,
             },
@@ -2129,6 +2146,7 @@ fn public_session_external_receives_object_datagram() -> moqt::Result<()> {
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             fragment: RemoteTrackOnObjectFragment {
                 object_header,
+                extension_headers: Bytes::new(),
                 payload: Bytes::from_static(b"xyz"),
                 fin: true,
             },
@@ -2160,7 +2178,7 @@ fn public_wire_helpers_round_trip_object_stream() -> moqt::Result<()> {
     parser.process_data(&mut bytes.freeze().as_ref(), true);
 
     match parser.poll_event() {
-        Some(MessageParserEvent::ObjectMessage(header, payload, fin)) => {
+        Some(MessageParserEvent::ObjectMessage(header, extension_headers, payload, fin)) => {
             assert_eq!(header.subscribe_id, 7);
             assert_eq!(header.track_alias, 9);
             assert_eq!(header.group_id, 1);
@@ -2171,6 +2189,53 @@ fn public_wire_helpers_round_trip_object_stream() -> moqt::Result<()> {
                 header.object_forwarding_preference,
                 ObjectForwardingPreference::Object
             );
+            assert_eq!(extension_headers, Bytes::new());
+            assert_eq!(payload, Bytes::from_static(b"frame"));
+            assert!(fin);
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn public_wire_helpers_round_trip_fetch_stream_with_extensions() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    let extension_headers = Bytes::from_static(b"ext");
+    MessageFramer::serialize_fetch_object(
+        ObjectHeader {
+            subscribe_id: 7,
+            track_alias: 7,
+            group_id: 1,
+            object_id: 2,
+            object_send_order: 3,
+            object_status: ObjectStatus::Normal,
+            object_forwarding_preference: ObjectForwardingPreference::Track,
+            object_payload_length: Some(5),
+        },
+        true,
+        extension_headers.clone(),
+        Bytes::from_static(b"frame"),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new_data_stream(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), true);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ObjectMessage(header, parsed_extensions, payload, fin)) => {
+            assert_eq!(header.subscribe_id, 7);
+            assert_eq!(header.track_alias, 7);
+            assert_eq!(header.group_id, 1);
+            assert_eq!(header.object_id, 2);
+            assert_eq!(header.object_send_order, 3);
+            assert_eq!(header.object_status, ObjectStatus::Normal);
+            assert_eq!(
+                header.object_forwarding_preference,
+                ObjectForwardingPreference::Track
+            );
+            assert_eq!(parsed_extensions, extension_headers);
             assert_eq!(payload, Bytes::from_static(b"frame"));
             assert!(fin);
         }

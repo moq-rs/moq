@@ -332,7 +332,12 @@ mod test {
         let mut parser = MessageParser::new(false);
         parser.process_data(&mut bytes.as_ref(), false);
         match parser.poll_event() {
-            Some(MessageParserEvent::ObjectMessage(header, payload, event_fin)) => {
+            Some(MessageParserEvent::ObjectMessage(
+                header,
+                _extension_headers,
+                payload,
+                event_fin,
+            )) => {
                 assert_eq!(header.subscribe_id, 7);
                 assert_eq!(header.track_alias, 9);
                 assert_eq!(header.group_id, 1);

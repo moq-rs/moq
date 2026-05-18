@@ -65,9 +65,12 @@ impl TestParserVisitor {
     fn handle_event(&mut self, event: MessageParserEvent) {
         match event {
             MessageParserEvent::ParsingError(code, reason) => self.on_parsing_error(code, reason),
-            MessageParserEvent::ObjectMessage(message, payload, end_of_message) => {
-                self.on_object_message(message, payload, end_of_message)
-            }
+            MessageParserEvent::ObjectMessage(
+                message,
+                _extension_headers,
+                payload,
+                end_of_message,
+            ) => self.on_object_message(message, payload, end_of_message),
             MessageParserEvent::ControlMessage(message) => self.on_control_message(message),
         }
     }

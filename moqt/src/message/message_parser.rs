@@ -43,7 +43,7 @@ impl Display for ErrorCode {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MessageParserEvent {
     ParsingError(ErrorCode, String),
-    ObjectMessage(ObjectHeader, Bytes, bool),
+    ObjectMessage(ObjectHeader, Bytes, Bytes, bool),
     ControlMessage(ControlMessage),
 }
 
@@ -148,6 +148,7 @@ impl MessageParser {
                     self.parser_events
                         .push_back(MessageParserEvent::ObjectMessage(
                             *object_metadata,
+                            Bytes::new(),
                             self.buffered_message
                                 .copy_to_bytes(self.buffered_message.remaining()),
                             fin,
@@ -163,6 +164,7 @@ impl MessageParser {
                     self.parser_events
                         .push_back(MessageParserEvent::ObjectMessage(
                             *object_metadata,
+                            Bytes::new(),
                             self.buffered_message
                                 .copy_to_bytes(self.buffered_message.remaining()),
                             false,
@@ -173,6 +175,7 @@ impl MessageParser {
                 self.parser_events
                     .push_back(MessageParserEvent::ObjectMessage(
                         *object_metadata,
+                        Bytes::new(),
                         self.buffered_message
                             .copy_to_bytes(self.payload_length_remaining),
                         true,
@@ -449,6 +452,7 @@ impl MessageParser {
                 parser_events.push_back(MessageParserEvent::ObjectMessage(
                     *object_metadata,
                     Bytes::new(),
+                    Bytes::new(),
                     true,
                 ));
                 return Ok(total_len);
@@ -480,6 +484,7 @@ impl MessageParser {
             // length.
             parser_events.push_back(MessageParserEvent::ObjectMessage(
                 *object_metadata,
+                Bytes::new(),
                 r.copy_to_bytes(payload_to_draw),
                 received_complete_message,
             ));
@@ -500,7 +505,7 @@ impl MessageParser {
         assert!(!self.object_payload_in_progress());
         let previous = self.object_metadata;
         let mut reader = self.buffered_message.as_ref();
-        let (object_metadata, header_len) =
+        let (object_metadata, extension_headers, header_len) =
             match MessageParser::parse_fetch_header(&mut reader, previous) {
                 Ok(value) => value,
                 Err(Error::ErrUnexpectedEnd | Error::ErrBufferTooShort) => return 0,
@@ -519,8 +524,12 @@ impl MessageParser {
         };
         let payload_length = object_metadata
             .object_payload_length
-            .expect("fetch objects always have explicit lengths") as usize;
-        let available = self.buffered_message.remaining().saturating_sub(processed_data);
+            .expect("fetch objects always have explicit lengths")
+            as usize;
+        let available = self
+            .buffered_message
+            .remaining()
+            .saturating_sub(processed_data);
         if fin && payload_length > available {
             self.parse_error(
                 ErrorCode::ProtocolViolation,
@@ -535,6 +544,7 @@ impl MessageParser {
         self.parser_events
             .push_back(MessageParserEvent::ObjectMessage(
                 *object_metadata,
+                extension_headers,
                 payload_reader.copy_to_bytes(payload_to_draw),
                 received_complete_message,
             ));
@@ -546,7 +556,7 @@ impl MessageParser {
     fn parse_fetch_header<R: Buf>(
         r: &mut R,
         previous: Option<ObjectHeader>,
-    ) -> Result<(ObjectHeader, usize)> {
+    ) -> Result<(ObjectHeader, Bytes, usize)> {
         let mut total_len = 0;
         if previous.is_none() {
             let (stream_type, stream_len) = u64::deserialize(r)?;
@@ -636,15 +646,18 @@ impl MessageParser {
             ));
         };
 
-        if (serialization & FETCH_HAS_EXTENSIONS) != 0 {
+        let extension_headers = if (serialization & FETCH_HAS_EXTENSIONS) != 0 {
             let (extension_len, extension_len_size) = usize::deserialize(r)?;
             total_len += extension_len_size;
             if r.remaining() < extension_len {
                 return Err(Error::ErrBufferTooShort);
             }
-            r.advance(extension_len);
+            let extension_headers = r.copy_to_bytes(extension_len);
             total_len += extension_len;
-        }
+            extension_headers
+        } else {
+            Bytes::new()
+        };
 
         let (payload_length, payload_len_size) = u64::deserialize(r)?;
         total_len += payload_len_size;
@@ -666,6 +679,7 @@ impl MessageParser {
                 object_forwarding_preference: ObjectForwardingPreference::Track,
                 object_payload_length: Some(payload_length),
             },
+            extension_headers,
             total_len,
         ))
     }

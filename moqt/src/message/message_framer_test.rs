@@ -278,11 +278,17 @@ fn test_fetch_stream_second_object_omits_repeated_fields() -> Result<()> {
     };
 
     let mut buffer = vec![];
-    let first_size =
-        MessageFramer::serialize_fetch_object_with_previous(first, None, Bytes::from_static(b"one"), &mut buffer)?;
+    let first_size = MessageFramer::serialize_fetch_object_with_previous(
+        first,
+        None,
+        Bytes::new(),
+        Bytes::from_static(b"one"),
+        &mut buffer,
+    )?;
     let second_size = MessageFramer::serialize_fetch_object_with_previous(
         second,
         Some(first),
+        Bytes::new(),
         Bytes::from_static(b"two"),
         &mut buffer,
     )?;
@@ -296,6 +302,39 @@ fn test_fetch_stream_second_object_omits_repeated_fields() -> Result<()> {
     assert_eq!(&buffer[first_size..first_size + 2], &[0x40, 0x40]);
     assert_eq!(buffer[first_size + 2], 0x03);
     assert_eq!(&buffer[first_size + 3..], b"two");
+    Ok(())
+}
+
+#[test]
+fn test_fetch_stream_first_object_with_extensions() -> Result<()> {
+    let object = ObjectHeader {
+        subscribe_id: 7,
+        track_alias: 7,
+        group_id: 5,
+        object_id: 9,
+        object_send_order: 4,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Track,
+        object_payload_length: Some(3),
+    };
+
+    let mut buffer = vec![];
+    let size = MessageFramer::serialize_fetch_object_with_previous(
+        object,
+        None,
+        Bytes::from_static(b"ext"),
+        Bytes::from_static(b"one"),
+        &mut buffer,
+    )?;
+
+    assert_eq!(size, buffer.len());
+    assert_eq!(buffer[0], 0x05);
+    assert_eq!(buffer[1], 0x07);
+    assert_eq!(&buffer[2..4], &[0x40, 0x7c]);
+    assert_eq!(buffer[7], 0x03);
+    assert_eq!(&buffer[8..11], b"ext");
+    assert_eq!(buffer[11], 0x03);
+    assert_eq!(&buffer[12..], b"one");
     Ok(())
 }
 

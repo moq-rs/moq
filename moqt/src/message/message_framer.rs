@@ -7,6 +7,7 @@ const FETCH_STREAM_TYPE: u64 = 0x05;
 const FETCH_HAS_OBJECT_ID: u64 = 0x04;
 const FETCH_HAS_GROUP_ID: u64 = 0x08;
 const FETCH_HAS_PRIORITY: u64 = 0x10;
+const FETCH_HAS_EXTENSIONS: u64 = 0x20;
 const FETCH_IS_DATAGRAM_LIKE: u64 = 0x40;
 
 pub struct MessageFramer;
@@ -159,6 +160,7 @@ impl MessageFramer {
     pub fn serialize_fetch_object<W: BufMut>(
         object_header: ObjectHeader,
         is_first_in_stream: bool,
+        extension_headers: Bytes,
         payload: Bytes,
         w: &mut W,
     ) -> Result<usize> {
@@ -169,6 +171,7 @@ impl MessageFramer {
             } else {
                 Some(object_header)
             },
+            extension_headers,
             payload,
             w,
         )
@@ -177,6 +180,7 @@ impl MessageFramer {
     pub fn serialize_fetch_object_with_previous<W: BufMut>(
         object_header: ObjectHeader,
         previous_object: Option<ObjectHeader>,
+        extension_headers: Bytes,
         payload: Bytes,
         w: &mut W,
     ) -> Result<usize> {
@@ -210,6 +214,9 @@ impl MessageFramer {
         } else {
             flags |= FETCH_HAS_GROUP_ID | FETCH_HAS_OBJECT_ID | FETCH_HAS_PRIORITY;
         }
+        if !extension_headers.is_empty() {
+            flags |= FETCH_HAS_EXTENSIONS;
+        }
         tl += flags.serialize(w)?;
         if (flags & FETCH_HAS_GROUP_ID) != 0 {
             tl += object_header.group_id.serialize(w)?;
@@ -223,6 +230,10 @@ impl MessageFramer {
             }
             w.put_u8(object_header.object_send_order as u8);
             tl += 1;
+        }
+        if (flags & FETCH_HAS_EXTENSIONS) != 0 {
+            tl += extension_headers.len().serialize(w)?;
+            tl += extension_headers.serialize(w)?;
         }
         tl += (payload.len() as u64).serialize(w)?;
         tl += payload.serialize(w)?;

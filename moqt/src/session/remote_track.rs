@@ -11,6 +11,7 @@ pub struct RemoteTrackOnReply {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RemoteTrackOnObjectFragment {
     pub object_header: ObjectHeader,
+    pub extension_headers: Bytes,
     pub payload: Bytes,
     pub fin: bool,
 }

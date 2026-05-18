@@ -99,6 +99,7 @@ struct IncomingFetch {
 #[derive(Debug)]
 struct BufferedFetchFragment {
     object_header: ObjectHeader,
+    extension_headers: Bytes,
     payload: Bytes,
     fin: bool,
 }
@@ -481,6 +482,7 @@ impl SessionCore {
         &mut self,
         stream_id: StreamId,
         object_header: ObjectHeader,
+        extension_headers: Bytes,
         mut payload: Bytes,
         fin: bool,
     ) {
@@ -523,19 +525,29 @@ impl SessionCore {
             ));
             return;
         };
-        if self.pending_outgoing_fetches.contains_key(&object_header.subscribe_id) {
+        if self
+            .pending_outgoing_fetches
+            .contains_key(&object_header.subscribe_id)
+        {
             self.buffered_outgoing_fetch_objects
                 .entry(object_header.subscribe_id)
                 .or_default()
                 .push_back(BufferedFetchFragment {
                     object_header,
+                    extension_headers,
                     payload,
                     fin,
                 });
             return;
         }
 
-        self.push_object_received(full_track_name, object_header, payload, fin);
+        self.push_object_received(
+            full_track_name,
+            object_header,
+            extension_headers,
+            payload,
+            fin,
+        );
     }
 
     fn process_stream_data(&mut self, stream_id: StreamId, data: Bytes, fin: bool) {
@@ -559,8 +571,19 @@ impl SessionCore {
                 MessageParserEvent::ParsingError(_, reason) => {
                     self.wouts.push_back(WriteOutput::Close { code: 1, reason });
                 }
-                MessageParserEvent::ObjectMessage(object_header, payload, fin) => {
-                    self.on_object_message(stream_id, object_header, payload, fin);
+                MessageParserEvent::ObjectMessage(
+                    object_header,
+                    extension_headers,
+                    payload,
+                    fin,
+                ) => {
+                    self.on_object_message(
+                        stream_id,
+                        object_header,
+                        extension_headers,
+                        payload,
+                        fin,
+                    );
                 }
             }
         }
@@ -574,7 +597,7 @@ impl SessionCore {
                 return;
             }
         };
-        self.on_object_message(0, object_header, payload, true);
+        self.on_object_message(0, object_header, Bytes::new(), payload, true);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -655,7 +678,9 @@ impl SessionCore {
     }
 
     fn resolve_object_track_name(&self, object_header: &ObjectHeader) -> Option<FullTrackName> {
-        if let Some(subscription) = self.active_outgoing_subscribes.get(&object_header.subscribe_id)
+        if let Some(subscription) = self
+            .active_outgoing_subscribes
+            .get(&object_header.subscribe_id)
         {
             if subscription.track_alias != object_header.track_alias {
                 return None;
@@ -663,8 +688,12 @@ impl SessionCore {
             return Some(subscription.full_track_name.clone());
         }
 
-        if self.pending_outgoing_fetches.contains_key(&object_header.subscribe_id)
-            || self.active_outgoing_fetches.contains_key(&object_header.subscribe_id)
+        if self
+            .pending_outgoing_fetches
+            .contains_key(&object_header.subscribe_id)
+            || self
+                .active_outgoing_fetches
+                .contains_key(&object_header.subscribe_id)
         {
             return self.resolve_outgoing_fetch_track_name(object_header.subscribe_id);
         }
@@ -676,13 +705,16 @@ impl SessionCore {
         &mut self,
         full_track_name: FullTrackName,
         object_header: ObjectHeader,
+        extension_headers: Bytes,
         payload: Bytes,
         fin: bool,
     ) {
         let remote_track = self
             .remote_tracks
             .entry(object_header.track_alias)
-            .or_insert_with(|| RemoteTrack::new(full_track_name.clone(), object_header.track_alias));
+            .or_insert_with(|| {
+                RemoteTrack::new(full_track_name.clone(), object_header.track_alias)
+            });
         if remote_track.full_track_name() != &full_track_name {
             self.close_with_protocol_violation(format!(
                 "track_alias {} changed track identity",
@@ -702,6 +734,7 @@ impl SessionCore {
             full_track_name,
             fragment: RemoteTrackOnObjectFragment {
                 object_header,
+                extension_headers,
                 payload,
                 fin,
             },
@@ -723,6 +756,7 @@ impl SessionCore {
             self.push_object_received(
                 full_track_name.clone(),
                 fragment.object_header,
+                fragment.extension_headers,
                 fragment.payload,
                 fragment.fin,
             );
@@ -757,7 +791,7 @@ impl SessionCore {
             return false;
         }
 
-        (request_id % 2 == 0) == (self.config.perspective == Perspective::Server)
+        request_id.is_multiple_of(2) == (self.config.perspective == Perspective::Server)
     }
 
     fn on_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
@@ -1199,7 +1233,9 @@ impl SessionCore {
                     return Ok(());
                 }
                 if self.active_outgoing_fetches.contains_key(&fetch.request_id)
-                    || self.pending_outgoing_fetches.contains_key(&fetch.request_id)
+                    || self
+                        .pending_outgoing_fetches
+                        .contains_key(&fetch.request_id)
                 {
                     self.close_with_protocol_violation("received request with too large ID");
                     return Ok(());
@@ -1309,7 +1345,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                             MessageParserEvent::ParsingError(_, reason) => {
                                 self.wouts.push_back(WriteOutput::Close { code: 1, reason });
                             }
-                            MessageParserEvent::ObjectMessage(_, _, _) => {
+                            MessageParserEvent::ObjectMessage(_, _, _, _) => {
                                 self.wouts.push_back(WriteOutput::Close {
                                     code: 1,
                                     reason: "received object on control stream".to_string(),
@@ -1576,9 +1612,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     )));
                 }
                 self.buffered_outgoing_fetch_objects.remove(&request_id);
-                self.send_control_message(ControlMessage::FetchCancel(FetchCancel {
-                    request_id,
-                }))?;
+                self.send_control_message(ControlMessage::FetchCancel(FetchCancel { request_id }))?;
             }
             Command::RequestsBlocked { max_request_id } => {
                 if self.state != SessionState::Established {
@@ -2272,10 +2306,7 @@ mod test {
                 assert_eq!(
                     fetch.target,
                     FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
-                        full_track_name: FullTrackName::new(
-                            "foo".to_string(),
-                            "bar".to_string()
-                        ),
+                        full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                         start: FullSequence::new(4, 1),
                         end: FullSequence::new(7, 9),
                     })
@@ -2383,10 +2414,12 @@ mod test {
             object_forwarding_preference: ObjectForwardingPreference::Track,
             object_payload_length: Some(3),
         };
+        let extension_headers = Bytes::from_static(b"ext");
         let mut object_bytes = BytesMut::new();
         let _ = MessageFramer::serialize_fetch_object(
             object_header,
             true,
+            extension_headers.clone(),
             Bytes::from_static(b"abc"),
             &mut object_bytes,
         )?;
@@ -2426,6 +2459,7 @@ mod test {
                 full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                 fragment: RemoteTrackOnObjectFragment {
                     object_header,
+                    extension_headers,
                     payload: Bytes::from_static(b"abc"),
                     fin: true,
                 },
@@ -2488,12 +2522,14 @@ mod test {
         let _ = MessageFramer::serialize_fetch_object_with_previous(
             first,
             None,
+            Bytes::new(),
             Bytes::from_static(b"abc"),
             &mut object_bytes,
         )?;
         let _ = MessageFramer::serialize_fetch_object_with_previous(
             second,
             Some(first),
+            Bytes::new(),
             Bytes::from_static(b"def"),
             &mut object_bytes,
         )?;
@@ -2533,6 +2569,7 @@ mod test {
                 full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                 fragment: RemoteTrackOnObjectFragment {
                     object_header: first,
+                    extension_headers: Bytes::new(),
                     payload: Bytes::from_static(b"abc"),
                     fin: true,
                 },
@@ -2544,6 +2581,7 @@ mod test {
                 full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                 fragment: RemoteTrackOnObjectFragment {
                     object_header: second,
+                    extension_headers: Bytes::new(),
                     payload: Bytes::from_static(b"def"),
                     fin: true,
                 },
@@ -2831,11 +2869,15 @@ mod test {
             data: {
                 let mut bytes = BytesMut::new();
                 let _ = MessageFramer::serialize_control_message(
-                    ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 120 }),
+                    ControlMessage::MaxRequestId(MaxRequestId {
+                        max_request_id: 120,
+                    }),
                     &mut bytes,
                 )?;
                 let _ = MessageFramer::serialize_control_message(
-                    ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 120 }),
+                    ControlMessage::RequestsBlocked(RequestsBlocked {
+                        max_request_id: 120,
+                    }),
                     &mut bytes,
                 )?;
                 bytes.freeze()
@@ -2845,11 +2887,15 @@ mod test {
 
         assert_eq!(
             protocol.poll_event(),
-            Some(EventOut::MaxRequestIdReceived { max_request_id: 120 })
+            Some(EventOut::MaxRequestIdReceived {
+                max_request_id: 120
+            })
         );
         assert_eq!(
             protocol.poll_event(),
-            Some(EventOut::RequestsBlockedReceived { max_request_id: 120 })
+            Some(EventOut::RequestsBlockedReceived {
+                max_request_id: 120
+            })
         );
         Ok(())
     }
@@ -4245,6 +4291,7 @@ mod test {
                 full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                 fragment: RemoteTrackOnObjectFragment {
                     object_header,
+                    extension_headers: Bytes::new(),
                     payload: Bytes::from_static(b"abc"),
                     fin: true,
                 },
@@ -4335,6 +4382,7 @@ mod test {
                 full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                 fragment: RemoteTrackOnObjectFragment {
                     object_header,
+                    extension_headers: Bytes::new(),
                     payload: Bytes::from_static(b"hello"),
                     fin: true,
                 },
@@ -4409,6 +4457,7 @@ mod test {
                 full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
                 fragment: RemoteTrackOnObjectFragment {
                     object_header,
+                    extension_headers: Bytes::new(),
                     payload: Bytes::from_static(b"xyz"),
                     fin: true,
                 },
@@ -4850,7 +4899,12 @@ mod test {
         let mut parser = MessageParser::new(false);
         parser.process_data(&mut bytes.as_ref(), true);
         match parser.poll_event() {
-            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+            Some(MessageParserEvent::ObjectMessage(
+                object_header,
+                extension_headers,
+                payload,
+                event_fin,
+            )) => {
                 assert_eq!(
                     object_header,
                     ObjectHeader {
@@ -4864,6 +4918,7 @@ mod test {
                         object_payload_length: None,
                     }
                 );
+                assert_eq!(extension_headers, Bytes::new());
                 assert_eq!(payload, Bytes::from_static(b"frame"));
                 assert!(event_fin);
             }
@@ -4962,7 +5017,12 @@ mod test {
         let mut parser = MessageParser::new(false);
         parser.process_data(&mut bytes.as_ref(), true);
         match parser.poll_event() {
-            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+            Some(MessageParserEvent::ObjectMessage(
+                object_header,
+                extension_headers,
+                payload,
+                event_fin,
+            )) => {
                 assert_eq!(
                     object_header,
                     ObjectHeader {
@@ -4976,6 +5036,7 @@ mod test {
                         object_payload_length: Some(5),
                     }
                 );
+                assert_eq!(extension_headers, Bytes::new());
                 assert_eq!(payload, Bytes::from_static(b"frame"));
                 assert!(event_fin);
             }
@@ -5074,7 +5135,12 @@ mod test {
         let mut parser = MessageParser::new(false);
         parser.process_data(&mut bytes.as_ref(), true);
         match parser.poll_event() {
-            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+            Some(MessageParserEvent::ObjectMessage(
+                object_header,
+                extension_headers,
+                payload,
+                event_fin,
+            )) => {
                 assert_eq!(
                     object_header,
                     ObjectHeader {
@@ -5088,6 +5154,7 @@ mod test {
                         object_payload_length: Some(5),
                     }
                 );
+                assert_eq!(extension_headers, Bytes::new());
                 assert_eq!(payload, Bytes::from_static(b"frame"));
                 assert!(event_fin);
             }
@@ -5203,13 +5270,19 @@ mod test {
         let mut parser = MessageParser::new(false);
         parser.process_data(&mut bytes.as_ref(), false);
         match parser.poll_event() {
-            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+            Some(MessageParserEvent::ObjectMessage(
+                object_header,
+                extension_headers,
+                payload,
+                event_fin,
+            )) => {
                 assert_eq!(object_header.group_id, 1);
                 assert_eq!(object_header.object_id, 0);
                 assert_eq!(
                     object_header.object_forwarding_preference,
                     ObjectForwardingPreference::Track
                 );
+                assert_eq!(extension_headers, Bytes::new());
                 assert_eq!(payload, Bytes::from_static(b"one"));
                 assert!(event_fin);
             }
@@ -5217,13 +5290,19 @@ mod test {
         }
         parser.process_data(&mut second_bytes.as_ref(), false);
         match parser.poll_event() {
-            Some(MessageParserEvent::ObjectMessage(object_header, payload, event_fin)) => {
+            Some(MessageParserEvent::ObjectMessage(
+                object_header,
+                extension_headers,
+                payload,
+                event_fin,
+            )) => {
                 assert_eq!(object_header.group_id, 1);
                 assert_eq!(object_header.object_id, 1);
                 assert_eq!(
                     object_header.object_forwarding_preference,
                     ObjectForwardingPreference::Track
                 );
+                assert_eq!(extension_headers, Bytes::new());
                 assert_eq!(payload, Bytes::from_static(b"two"));
                 assert!(event_fin);
             }
