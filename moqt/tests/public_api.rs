@@ -1,8 +1,8 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
     Command, Connection, EventIn, EventOut, ObjectForwardingPreference, ProtocolConfig,
-    ProtocolPerspective, ReadOutput, Session, SessionConfig, SessionCore, SessionDriver,
-    SessionPerspective, SessionTransport, StreamPurpose, Version, WriteOutput,
+    ProtocolPerspective, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
+    SessionTransport, StreamPurpose, Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -128,7 +128,6 @@ fn public_session_wrapper_smoke_test() -> moqt::Result<()> {
     session.on_transport_connected()?;
     session.handle_timeout(Instant::now())?;
 
-    assert_eq!(session.poll_read(), None::<ReadOutput>);
     assert_eq!(session.poll_event(), None::<EventOut>);
 
     session.handle_command(Command::RegisterLocalTrack {

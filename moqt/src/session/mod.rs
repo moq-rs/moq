@@ -1,6 +1,6 @@
 use crate::connection::Connection;
 use crate::driver::SessionDriver;
-use crate::protocol::{self, Command, EventOut, ReadOutput};
+use crate::protocol::{self, Command, EventOut};
 use crate::Result;
 use bytes::Bytes;
 use std::time::Instant;
@@ -80,10 +80,6 @@ impl Session {
 
     pub fn handle_command(&mut self, command: Command) -> Result<()> {
         self.driver.handle_command(command)
-    }
-
-    pub fn poll_read(&mut self) -> Option<ReadOutput> {
-        self.driver.poll_read()
     }
 
     pub fn poll_event(&mut self) -> Option<EventOut> {

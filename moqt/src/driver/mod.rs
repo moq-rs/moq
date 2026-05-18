@@ -1,7 +1,6 @@
 use crate::connection::Connection;
 use crate::protocol::{
-    Command, Config, EventIn, EventOut, ReadInput, ReadOutput, SessionCore, StreamPurpose,
-    WriteOutput,
+    Command, Config, EventIn, EventOut, ReadInput, SessionCore, StreamPurpose, WriteOutput,
 };
 use crate::{Result, StreamId};
 use bytes::{Bytes, BytesMut};
@@ -39,7 +38,6 @@ impl SessionTransport for Connection {
 pub struct SessionDriver<T> {
     protocol: SessionCore,
     transport: T,
-    reads: VecDeque<ReadOutput>,
     events: VecDeque<EventOut>,
 }
 
@@ -48,7 +46,6 @@ impl<T: SessionTransport> SessionDriver<T> {
         Self {
             protocol: SessionCore::new(config),
             transport,
-            reads: VecDeque::new(),
             events: VecDeque::new(),
         }
     }
@@ -118,10 +115,6 @@ impl<T: SessionTransport> SessionDriver<T> {
         self.protocol.poll_timeout()
     }
 
-    pub fn poll_read(&mut self) -> Option<ReadOutput> {
-        self.reads.pop_front()
-    }
-
     pub fn poll_event(&mut self) -> Option<EventOut> {
         self.events.pop_front()
     }
@@ -149,11 +142,6 @@ impl<T: SessionTransport> SessionDriver<T> {
                     WriteOutput::SendDatagram(bytes) => self.transport.send_datagram(bytes)?,
                     WriteOutput::Close { code, reason } => self.transport.close(code, reason)?,
                 }
-            }
-
-            while let Some(read) = self.protocol.poll_read() {
-                progressed = true;
-                self.reads.push_back(read);
             }
 
             while let Some(event) = self.protocol.poll_event() {

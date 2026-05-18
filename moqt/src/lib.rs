@@ -32,7 +32,7 @@ pub use message::unsubscribe::UnSubscribe;
 pub use message::{FilterType, FullSequence, FullTrackName, Role, Version};
 pub use protocol::{
     Command, Config as ProtocolConfig, EventIn, EventOut, Perspective as ProtocolPerspective,
-    ReadInput, ReadOutput, SessionCore, StreamPurpose, WriteOutput,
+    ReadInput, SessionCore, StreamPurpose, WriteOutput,
 };
 pub use serde::{parameters::Parameters, varint::VarInt, Deserializer, Serializer};
 pub use session::config::{Config as SessionConfig, Perspective as SessionPerspective};

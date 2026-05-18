@@ -58,16 +58,6 @@ pub enum ReadInput {
     Datagram(Bytes),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum ReadOutput {
-    StreamData {
-        stream_id: StreamId,
-        data: Bytes,
-        fin: bool,
-    },
-    Datagram(Bytes),
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum SessionState {
     AwaitingSetup,
@@ -317,7 +307,6 @@ pub struct SessionCore {
     publisher_streams: HashMap<StreamId, PublisherStreamBinding>,
     next_remote_track_alias: u64,
     next_subscribe_id: u64,
-    routs: VecDeque<ReadOutput>,
     wouts: VecDeque<WriteOutput>,
     eouts: VecDeque<EventOut>,
 }
@@ -346,7 +335,6 @@ impl SessionCore {
             publisher_streams: HashMap::new(),
             next_remote_track_alias: 0,
             next_subscribe_id: 0,
-            routs: VecDeque::new(),
             wouts: VecDeque::new(),
             eouts: VecDeque::new(),
         }
@@ -1041,7 +1029,7 @@ impl SessionCore {
 }
 
 impl Protocol<ReadInput, Command, EventIn> for SessionCore {
-    type Rout = ReadOutput;
+    type Rout = ();
     type Wout = WriteOutput;
     type Eout = EventOut;
     type Error = crate::Error;
@@ -1088,7 +1076,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
     }
 
     fn poll_read(&mut self) -> Option<Self::Rout> {
-        self.routs.pop_front()
+        None
     }
 
     fn handle_write(&mut self, msg: Command) -> Result<()> {
