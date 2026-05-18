@@ -275,6 +275,53 @@ fn public_session_driver_surfaces_subscribe_accepted() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_subscribe_rejected() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::SubscribeError(SubscribeError {
+            subscribe_id: 0,
+            error_code: 403,
+            reason_phrase: "forbidden".to_string(),
+            track_alias: 0,
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::SubscribeRejected {
+            subscribe_id: 0,
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            error_code: 403,
+            reason_phrase: "forbidden".to_string(),
+            track_alias: 0,
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
     let transport = FakeTransport::new(10);
     let mut driver = SessionDriver::new(server_protocol_config(), transport);
