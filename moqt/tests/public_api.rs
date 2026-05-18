@@ -4,7 +4,8 @@ use moqt::{
     FullTrackName, MessageFramer, MessageParser, MessageParserEvent, ObjectForwardingPreference,
     ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective, RemoteTrackOnObjectFragment,
     Role, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
-    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeOk, Version, WriteOutput,
+    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeError, SubscribeOk, Version,
+    WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -325,6 +326,52 @@ fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
             track_alias: 0,
             expires: 30,
             largest_group_object: Some(FullSequence::new(7, 2)),
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_subscribe_rejection_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::SubscribeError(SubscribeError {
+            subscribe_id: 0,
+            error_code: 403,
+            reason_phrase: "forbidden".to_string(),
+            track_alias: 0,
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::SubscribeRejected {
+            subscribe_id: 0,
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            error_code: 403,
+            reason_phrase: "forbidden".to_string(),
+            track_alias: 0,
         })
     );
     Ok(())
