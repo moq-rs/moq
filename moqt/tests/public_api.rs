@@ -1,25 +1,25 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
-    ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType,
-    FullSequence, FullTrackName, ObjectForwardingPreference, ProtocolConfig,
-    ProtocolPerspective, Role, Serializer, ServerSetup, Session, SessionConfig, SessionCore,
-    SessionDriver, SessionPerspective, SessionTransport, StreamPurpose, Subscribe, SubscribeOk,
-    Version, WriteOutput,
+    ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType, FullSequence,
+    FullTrackName, ObjectForwardingPreference, ProtocolConfig, ProtocolPerspective, Role,
+    Serializer, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver,
+    SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeOk, Version,
+    WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
 
 #[derive(Default)]
 struct FakeTransport {
-    next_stream_id: u32,
-    opened_streams: Vec<(StreamPurpose, u32)>,
-    sent_streams: Vec<(u32, BytesMut, bool)>,
+    next_stream_id: StreamId,
+    opened_streams: Vec<(StreamPurpose, StreamId)>,
+    sent_streams: Vec<(StreamId, BytesMut, bool)>,
     sent_datagrams: Vec<Bytes>,
     closes: Vec<(u64, String)>,
 }
 
 impl FakeTransport {
-    fn new(next_stream_id: u32) -> Self {
+    fn new(next_stream_id: StreamId) -> Self {
         Self {
             next_stream_id,
             ..Self::default()
@@ -28,14 +28,14 @@ impl FakeTransport {
 }
 
 impl SessionTransport for FakeTransport {
-    fn open_bi_stream(&mut self, purpose: StreamPurpose) -> moqt::Result<u32> {
+    fn open_bi_stream(&mut self, purpose: StreamPurpose) -> moqt::Result<StreamId> {
         let stream_id = self.next_stream_id;
         self.next_stream_id += 2;
         self.opened_streams.push((purpose, stream_id));
         Ok(stream_id)
     }
 
-    fn send_stream(&mut self, stream_id: u32, bytes: BytesMut, fin: bool) -> moqt::Result<()> {
+    fn send_stream(&mut self, stream_id: StreamId, bytes: BytesMut, fin: bool) -> moqt::Result<()> {
         self.sent_streams.push((stream_id, bytes, fin));
         Ok(())
     }
@@ -167,9 +167,9 @@ fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
     session.on_stream_data(
         0,
         encode_control(ControlMessage::ServerSetup(ServerSetup {
-                supported_version: Version::Draft04,
-                role: Some(Role::PubSub),
-            }))?,
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
         false,
     )?;
     let _ = session.poll_event();
@@ -184,10 +184,10 @@ fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
     session.on_stream_data(
         0,
         encode_control(ControlMessage::SubscribeOk(SubscribeOk {
-                subscribe_id: 0,
-                expires: 30,
-                largest_group_object: Some(FullSequence::new(7, 2)),
-            }))?,
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: Some(FullSequence::new(7, 2)),
+        }))?,
         false,
     )?;
 
@@ -218,11 +218,11 @@ fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
     session.on_stream_data(
         0,
         encode_control(ControlMessage::ClientSetup(ClientSetup {
-                supported_versions: vec![Version::Draft04],
-                role: Some(Role::PubSub),
-                path: Some("/moq".to_string()),
-                uses_web_transport: false,
-            }))?,
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
         false,
     )?;
     let _ = session.poll_event();
@@ -235,8 +235,15 @@ fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
         filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
         authorization_info: None,
     };
-    session.on_stream_data(0, encode_control(ControlMessage::Subscribe(subscribe.clone()))?, false)?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::Subscribe(subscribe.clone()))?,
+        false,
+    )?;
 
-    assert_eq!(session.poll_event(), Some(EventOut::SubscribeReceived(subscribe)));
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::SubscribeReceived(subscribe))
+    );
     Ok(())
 }

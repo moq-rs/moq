@@ -1,7 +1,7 @@
 use crate::connection::Connection;
 use crate::driver::SessionDriver;
 use crate::protocol::{self, Command, EventOut};
-use crate::Result;
+use crate::{Result, StreamId};
 use bytes::Bytes;
 use std::time::Instant;
 
@@ -63,15 +63,15 @@ impl Session {
         self.driver.on_transport_closed()
     }
 
-    pub fn on_stream_opened(&mut self, stream_id: u32, bidi: bool, local: bool) -> Result<()> {
+    pub fn on_stream_opened(&mut self, stream_id: StreamId, bidi: bool, local: bool) -> Result<()> {
         self.driver.on_stream_opened(stream_id, bidi, local)
     }
 
-    pub fn on_stream_closed(&mut self, stream_id: u32) -> Result<()> {
+    pub fn on_stream_closed(&mut self, stream_id: StreamId) -> Result<()> {
         self.driver.on_stream_closed(stream_id)
     }
 
-    pub fn on_stream_data(&mut self, stream_id: u32, data: Bytes, fin: bool) -> Result<()> {
+    pub fn on_stream_data(&mut self, stream_id: StreamId, data: Bytes, fin: bool) -> Result<()> {
         self.driver.on_stream_data(stream_id, data, fin)
     }
 
