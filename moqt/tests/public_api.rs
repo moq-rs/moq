@@ -818,6 +818,172 @@ fn public_session_driver_surfaces_goaway_received() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_incoming_fetch() -> moqt::Result<()> {
+    let transport = FakeTransport::new(10);
+    let mut driver = SessionDriver::new(server_protocol_config(), transport);
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    let fetch = Fetch {
+        request_id: 7,
+        target: FetchTarget::Standalone(StandaloneFetch {
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            start: FullSequence::new(3, 1),
+            end: FullSequence::new(5, 0),
+        }),
+        authorization_info: None,
+    };
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::Fetch(fetch.clone()))?,
+        false,
+    )?;
+
+    assert_eq!(driver.poll_event(), Some(EventOut::FetchReceived(fetch)));
+    Ok(())
+}
+
+#[test]
+fn public_session_driver_surfaces_fetch_accepted() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::Fetch {
+        target: FetchTarget::Standalone(StandaloneFetch {
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            start: FullSequence::new(0, 0),
+            end: FullSequence::new(1, 0),
+        }),
+        authorization_info: None,
+    })?;
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::FetchOk(FetchOk {
+            request_id: 0,
+            end_of_track: false,
+            end_location: FullSequence::new(1, 0),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::FetchAccepted {
+            request_id: 0,
+            end_of_track: false,
+            end_location: FullSequence::new(1, 0),
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_driver_surfaces_fetch_cancelled() -> moqt::Result<()> {
+    let transport = FakeTransport::new(10);
+    let mut driver = SessionDriver::new(server_protocol_config(), transport);
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::Fetch(Fetch {
+            request_id: 7,
+            target: FetchTarget::Standalone(StandaloneFetch {
+                full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+                start: FullSequence::new(3, 1),
+                end: FullSequence::new(5, 0),
+            }),
+            authorization_info: None,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::FetchCancel(FetchCancel { request_id: 7 }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::FetchCancelled { request_id: 7 })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_driver_surfaces_request_window_events() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 12 }))?,
+        false,
+    )?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 12 }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::MaxRequestIdReceived { max_request_id: 12 })
+    );
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::RequestsBlockedReceived { max_request_id: 12 })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
     let transport = FakeTransport::new(10);
     let mut driver = SessionDriver::new(server_protocol_config(), transport);

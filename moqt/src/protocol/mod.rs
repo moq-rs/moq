@@ -3,10 +3,15 @@ use crate::message::announce_cancel::AnnounceCancel;
 use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
+use crate::message::fetch::{Fetch, FetchTarget};
+use crate::message::fetch_cancel::FetchCancel;
+use crate::message::fetch_ok::FetchOk;
 use crate::message::go_away::GoAway;
+use crate::message::max_request_id::MaxRequestId;
 use crate::message::message_framer::MessageFramer;
 use crate::message::message_parser::{MessageParser, MessageParserEvent};
 use crate::message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
+use crate::message::requests_blocked::RequestsBlocked;
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
@@ -83,6 +88,12 @@ struct IncomingAnnounce {
     accepted: bool,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct IncomingFetch {
+    message: Fetch,
+    accepted: bool,
+}
+
 struct DataStreamState {
     parser: MessageParser,
     partial_object: Option<(ObjectHeader, BytesMut)>,
@@ -142,6 +153,24 @@ pub enum Command {
     },
     GoAway {
         new_session_uri: String,
+    },
+    MaxRequestId {
+        max_request_id: u64,
+    },
+    Fetch {
+        target: FetchTarget,
+        authorization_info: Option<String>,
+    },
+    FetchOk {
+        request_id: u64,
+        end_of_track: bool,
+        end_location: FullSequence,
+    },
+    FetchCancel {
+        request_id: u64,
+    },
+    RequestsBlocked {
+        max_request_id: u64,
     },
     Subscribe {
         track_namespace: String,
@@ -226,6 +255,21 @@ pub enum EventOut {
     GoAwayReceived {
         new_session_uri: String,
     },
+    MaxRequestIdReceived {
+        max_request_id: u64,
+    },
+    FetchReceived(Fetch),
+    FetchAccepted {
+        request_id: u64,
+        end_of_track: bool,
+        end_location: FullSequence,
+    },
+    FetchCancelled {
+        request_id: u64,
+    },
+    RequestsBlockedReceived {
+        max_request_id: u64,
+    },
     SubscribeReceived(Subscribe),
     SubscribeAccepted {
         subscribe_id: u64,
@@ -297,16 +341,22 @@ pub struct SessionCore {
     used_track_aliases: HashSet<u64>,
     pending_outgoing_announces: HashSet<String>,
     active_outgoing_announces: HashSet<String>,
+    pending_outgoing_fetches: HashMap<u64, Fetch>,
+    active_outgoing_fetches: HashMap<u64, Fetch>,
     pending_outgoing_subscribes: HashMap<u64, Subscription>,
     active_outgoing_subscribes: HashMap<u64, Subscription>,
     closing_outgoing_subscribes: HashMap<u64, Subscription>,
     incoming_announces: HashMap<String, IncomingAnnounce>,
+    incoming_fetches: HashMap<u64, IncomingFetch>,
     incoming_subscribes: HashMap<u64, IncomingSubscribe>,
     data_streams: HashMap<StreamId, DataStreamState>,
     pending_data_stream_opens: VecDeque<PendingDataStreamOpen>,
     publisher_streams: HashMap<StreamId, PublisherStreamBinding>,
     next_remote_track_alias: u64,
+    next_request_id: u64,
     next_subscribe_id: u64,
+    local_max_request_id: u64,
+    peer_max_request_id: Option<u64>,
     wouts: VecDeque<WriteOutput>,
     eouts: VecDeque<EventOut>,
 }
@@ -325,16 +375,22 @@ impl SessionCore {
             used_track_aliases: HashSet::new(),
             pending_outgoing_announces: HashSet::new(),
             active_outgoing_announces: HashSet::new(),
+            pending_outgoing_fetches: HashMap::new(),
+            active_outgoing_fetches: HashMap::new(),
             pending_outgoing_subscribes: HashMap::new(),
             active_outgoing_subscribes: HashMap::new(),
             closing_outgoing_subscribes: HashMap::new(),
             incoming_announces: HashMap::new(),
+            incoming_fetches: HashMap::new(),
             incoming_subscribes: HashMap::new(),
             data_streams: HashMap::new(),
             pending_data_stream_opens: VecDeque::new(),
             publisher_streams: HashMap::new(),
             next_remote_track_alias: 0,
+            next_request_id: 0,
             next_subscribe_id: 0,
+            local_max_request_id: 0,
+            peer_max_request_id: None,
             wouts: VecDeque::new(),
             eouts: VecDeque::new(),
         }
@@ -1023,14 +1079,100 @@ impl SessionCore {
                     new_session_uri: go_away.new_session_uri,
                 });
             }
-            ControlMessage::MaxRequestId(_)
-            | ControlMessage::Fetch(_)
-            | ControlMessage::FetchCancel(_)
-            | ControlMessage::FetchOk(_)
-            | ControlMessage::RequestsBlocked(_) => {
-                self.close_with_protocol_violation(
-                    "received unsupported draft16 request/fetch message",
+            ControlMessage::MaxRequestId(max_request_id) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received MAX_REQUEST_ID before session setup",
+                    );
+                    return Ok(());
+                }
+                if self
+                    .peer_max_request_id
+                    .is_some_and(|prev| max_request_id.max_request_id < prev)
+                {
+                    self.close_with_protocol_violation(
+                        "MAX_REQUEST_ID has lower value than previous",
+                    );
+                    return Ok(());
+                }
+                self.peer_max_request_id = Some(max_request_id.max_request_id);
+                self.eouts.push_back(EventOut::MaxRequestIdReceived {
+                    max_request_id: max_request_id.max_request_id,
+                });
+            }
+            ControlMessage::Fetch(fetch) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation("received FETCH before session setup");
+                    return Ok(());
+                }
+                if self.incoming_fetches.contains_key(&fetch.request_id) {
+                    self.close_with_protocol_violation(format!(
+                        "received duplicate FETCH for request_id {}",
+                        fetch.request_id
+                    ));
+                    return Ok(());
+                }
+                self.incoming_fetches.insert(
+                    fetch.request_id,
+                    IncomingFetch {
+                        message: fetch.clone(),
+                        accepted: false,
+                    },
                 );
+                self.eouts.push_back(EventOut::FetchReceived(fetch));
+            }
+            ControlMessage::FetchCancel(fetch_cancel) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received FETCH_CANCEL before session setup",
+                    );
+                    return Ok(());
+                }
+                if self
+                    .incoming_fetches
+                    .remove(&fetch_cancel.request_id)
+                    .is_none()
+                {
+                    self.close_with_protocol_violation(format!(
+                        "received FETCH_CANCEL for unknown request_id {}",
+                        fetch_cancel.request_id
+                    ));
+                    return Ok(());
+                }
+                self.eouts.push_back(EventOut::FetchCancelled {
+                    request_id: fetch_cancel.request_id,
+                });
+            }
+            ControlMessage::FetchOk(fetch_ok) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation("received FETCH_OK before session setup");
+                    return Ok(());
+                }
+                let Some(fetch) = self.pending_outgoing_fetches.remove(&fetch_ok.request_id) else {
+                    self.close_with_protocol_violation(format!(
+                        "received FETCH_OK for unknown request_id {}",
+                        fetch_ok.request_id
+                    ));
+                    return Ok(());
+                };
+                self.active_outgoing_fetches
+                    .insert(fetch_ok.request_id, fetch);
+                self.eouts.push_back(EventOut::FetchAccepted {
+                    request_id: fetch_ok.request_id,
+                    end_of_track: fetch_ok.end_of_track,
+                    end_location: fetch_ok.end_location,
+                });
+            }
+            ControlMessage::RequestsBlocked(requests_blocked) => {
+                if self.state != SessionState::Established {
+                    self.close_with_protocol_violation(
+                        "received REQUESTS_BLOCKED before session setup",
+                    );
+                    return Ok(());
+                }
+                self.eouts.push_back(EventOut::RequestsBlockedReceived {
+                    max_request_id: requests_blocked.max_request_id,
+                });
             }
         }
         Ok(())
@@ -1245,6 +1387,98 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     ));
                 }
                 self.send_control_message(ControlMessage::GoAway(GoAway { new_session_uri }))?;
+            }
+            Command::MaxRequestId { max_request_id } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send MAX_REQUEST_ID before session established".to_string(),
+                    ));
+                }
+                if max_request_id < self.local_max_request_id {
+                    return Err(crate::Error::ErrOther(
+                        "cannot lower MAX_REQUEST_ID".to_string(),
+                    ));
+                }
+                self.local_max_request_id = max_request_id;
+                self.send_control_message(ControlMessage::MaxRequestId(MaxRequestId {
+                    max_request_id,
+                }))?;
+            }
+            Command::Fetch {
+                target,
+                authorization_info,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send FETCH before session established".to_string(),
+                    ));
+                }
+                let request_id = self.next_request_id;
+                self.next_request_id += 1;
+                let fetch = Fetch {
+                    request_id,
+                    target,
+                    authorization_info,
+                };
+                self.send_control_message(ControlMessage::Fetch(fetch.clone()))?;
+                self.pending_outgoing_fetches.insert(request_id, fetch);
+            }
+            Command::FetchOk {
+                request_id,
+                end_of_track,
+                end_location,
+            } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send FETCH_OK before session established".to_string(),
+                    ));
+                }
+                let Some(incoming_fetch) = self.incoming_fetches.get_mut(&request_id) else {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send FETCH_OK for unknown request_id {}",
+                        request_id
+                    )));
+                };
+                if incoming_fetch.accepted {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send duplicate FETCH_OK for request_id {}",
+                        request_id
+                    )));
+                }
+                incoming_fetch.accepted = true;
+                self.send_control_message(ControlMessage::FetchOk(FetchOk {
+                    request_id,
+                    end_of_track,
+                    end_location,
+                }))?;
+            }
+            Command::FetchCancel { request_id } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send FETCH_CANCEL before session established".to_string(),
+                    ));
+                }
+                if self.pending_outgoing_fetches.remove(&request_id).is_none()
+                    && self.active_outgoing_fetches.remove(&request_id).is_none()
+                {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send FETCH_CANCEL for unknown request_id {}",
+                        request_id
+                    )));
+                }
+                self.send_control_message(ControlMessage::FetchCancel(FetchCancel {
+                    request_id,
+                }))?;
+            }
+            Command::RequestsBlocked { max_request_id } => {
+                if self.state != SessionState::Established {
+                    return Err(crate::Error::ErrOther(
+                        "cannot send REQUESTS_BLOCKED before session established".to_string(),
+                    ));
+                }
+                self.send_control_message(ControlMessage::RequestsBlocked(RequestsBlocked {
+                    max_request_id,
+                }))?;
             }
             Command::Subscribe {
                 track_namespace,
@@ -1876,6 +2110,259 @@ mod test {
                 peer_role: Some(Role::PubSub),
                 path: None
             })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn client_sends_fetch_after_session_established() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 17,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Fetch {
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                start: FullSequence::new(4, 1),
+                end: FullSequence::new(7, 9),
+            }),
+            authorization_info: Some("token".to_string()),
+        })?;
+
+        let Some(WriteOutput::SendStream {
+            stream_id, bytes, ..
+        }) = protocol.poll_write()
+        else {
+            panic!("expected fetch bytes");
+        };
+        assert_eq!(stream_id, 17);
+
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        match parser.poll_event() {
+            Some(MessageParserEvent::ControlMessage(ControlMessage::Fetch(fetch))) => {
+                assert_eq!(fetch.request_id, 0);
+                assert_eq!(
+                    fetch.target,
+                    FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                        full_track_name: FullTrackName::new(
+                            "foo".to_string(),
+                            "bar".to_string()
+                        ),
+                        start: FullSequence::new(4, 1),
+                        end: FullSequence::new(7, 9),
+                    })
+                );
+                assert_eq!(fetch.authorization_info, Some("token".to_string()));
+            }
+            _ => panic!("unexpected parser event"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn client_receives_fetch_ok_for_active_fetch() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 19,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Fetch {
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                start: FullSequence::new(0, 0),
+                end: FullSequence::new(1, 0),
+            }),
+            authorization_info: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let mut fetch_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::FetchOk(FetchOk {
+                request_id: 0,
+                end_of_track: false,
+                end_location: FullSequence::new(1, 0),
+            }),
+            &mut fetch_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 19,
+            data: fetch_ok_bytes.freeze(),
+            fin: true,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::FetchAccepted {
+                request_id: 0,
+                end_of_track: false,
+                end_location: FullSequence::new(1, 0),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn server_receives_fetch_and_handles_fetch_lifecycle() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let fetch = Fetch {
+            request_id: 11,
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+                start: FullSequence::new(3, 1),
+                end: FullSequence::new(5, 0),
+            }),
+            authorization_info: None,
+        };
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::Fetch(fetch.clone()),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::FetchReceived(fetch.clone()))
+        );
+
+        protocol.handle_write(Command::FetchOk {
+            request_id: 11,
+            end_of_track: true,
+            end_location: FullSequence::new(5, 0),
+        })?;
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected fetch_ok bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        assert_eq!(
+            parser.poll_event(),
+            Some(MessageParserEvent::ControlMessage(ControlMessage::FetchOk(
+                FetchOk {
+                    request_id: 11,
+                    end_of_track: true,
+                    end_location: FullSequence::new(5, 0),
+                }
+            )))
+        );
+
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 21,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::FetchCancel(FetchCancel { request_id: 11 }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: true,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::FetchCancelled { request_id: 11 })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn protocol_surfaces_request_window_messages() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 23,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 23,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 12 }),
+                    &mut bytes,
+                )?;
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 12 }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: true,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::MaxRequestIdReceived { max_request_id: 12 })
+        );
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::RequestsBlockedReceived { max_request_id: 12 })
         );
         Ok(())
     }
