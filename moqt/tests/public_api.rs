@@ -4,8 +4,8 @@ use moqt::{
     FullTrackName, MessageFramer, MessageParser, MessageParserEvent, ObjectForwardingPreference,
     ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective, RemoteTrackOnObjectFragment,
     Role, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
-    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeError, SubscribeOk, Version,
-    WriteOutput,
+    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeDone, SubscribeError,
+    SubscribeOk, Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -372,6 +372,64 @@ fn public_session_external_subscribe_rejection_round_trip() -> moqt::Result<()> 
             error_code: 403,
             reason_phrase: "forbidden".to_string(),
             track_alias: 0,
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_subscribe_done_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: None,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::SubscribeDone(SubscribeDone {
+            subscribe_id: 0,
+            status_code: 206,
+            reason_phrase: "finished".to_string(),
+            final_group_object: Some(FullSequence::new(7, 2)),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::SubscribeEnded {
+            subscribe_id: 0,
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            track_alias: 0,
+            status_code: 206,
+            reason_phrase: "finished".to_string(),
+            final_group_object: Some(FullSequence::new(7, 2)),
         })
     );
     Ok(())
