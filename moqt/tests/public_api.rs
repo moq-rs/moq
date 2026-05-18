@@ -1106,3 +1106,32 @@ fn public_wire_helpers_round_trip_control_message() -> moqt::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn public_wire_helpers_round_trip_subscribe_update_without_auth() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::SubscribeUpdate(SubscribeUpdate {
+            subscribe_id: 7,
+            start_group_object: FullSequence::new(3, 1),
+            end_group_object: Some(FullSequence::new(5, 9)),
+            authorization_info: None,
+        }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ControlMessage(ControlMessage::SubscribeUpdate(update))) => {
+            assert_eq!(update.subscribe_id, 7);
+            assert_eq!(update.start_group_object, FullSequence::new(3, 1));
+            assert_eq!(update.end_group_object, Some(FullSequence::new(5, 9)));
+            assert_eq!(update.authorization_info, None);
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
