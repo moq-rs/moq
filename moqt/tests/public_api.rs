@@ -289,6 +289,30 @@ fn public_session_wrapper_smoke_test() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_external_establishment_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::SessionEstablished {
+            peer_role: Some(Role::PubSub),
+            path: None,
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
     let mut session = Session::new(client_session_config(), Connection::QUIC);
 
