@@ -313,6 +313,16 @@ fn public_session_external_establishment_round_trip() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_external_termination_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_closed()?;
+
+    assert_eq!(session.poll_event(), Some(EventOut::SessionTerminated));
+    Ok(())
+}
+
+#[test]
 fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
     let mut session = Session::new(client_session_config(), Connection::QUIC);
 
