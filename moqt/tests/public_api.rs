@@ -619,6 +619,36 @@ fn public_session_external_announce_rejection_round_trip() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_external_server_receives_announce() -> moqt::Result<()> {
+    let mut session = Session::new(server_session_config(), Connection::QUIC);
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    let announce = Announce {
+        track_namespace: "live".to_string(),
+        authorization_info: None,
+    };
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::Announce(announce.clone()))?,
+        false,
+    )?;
+
+    assert_eq!(session.poll_event(), Some(EventOut::AnnounceReceived(announce)));
+    Ok(())
+}
+
+#[test]
 fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
     let mut session = Session::new(server_session_config(), Connection::QUIC);
 
