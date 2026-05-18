@@ -3,6 +3,12 @@ use crate::message::{ControlMessage, MessageType};
 use crate::{Error, Result, Serializer};
 use bytes::{BufMut, Bytes};
 
+const FETCH_STREAM_TYPE: u64 = 0x05;
+const FETCH_HAS_OBJECT_ID: u64 = 0x04;
+const FETCH_HAS_GROUP_ID: u64 = 0x08;
+const FETCH_HAS_PRIORITY: u64 = 0x10;
+const FETCH_IS_DATAGRAM_LIKE: u64 = 0x40;
+
 pub struct MessageFramer;
 
 impl MessageFramer {
@@ -146,6 +152,42 @@ impl MessageFramer {
         adjusted_object_header.object_payload_length = Some(payload.len() as u64);
         let mut tl =
             MessageFramer::serialize_object_header(adjusted_object_header, is_first_in_stream, w)?;
+        tl += payload.serialize(w)?;
+        Ok(tl)
+    }
+
+    pub fn serialize_fetch_object<W: BufMut>(
+        object_header: ObjectHeader,
+        is_first_in_stream: bool,
+        payload: Bytes,
+        w: &mut W,
+    ) -> Result<usize> {
+        if object_header.object_status != ObjectStatus::Normal {
+            return Err(Error::ErrInvalidObjectType(
+                "fetch stream objects only support normal status".to_string(),
+            ));
+        }
+        if object_header.object_send_order > u64::from(u8::MAX) {
+            return Err(Error::ErrInvalidObjectType(
+                "fetch stream priority must fit in one byte".to_string(),
+            ));
+        }
+
+        let mut tl = 0;
+        if is_first_in_stream {
+            tl += FETCH_STREAM_TYPE.serialize(w)?;
+            tl += object_header.subscribe_id.serialize(w)?;
+        }
+        let flags = FETCH_IS_DATAGRAM_LIKE | FETCH_HAS_GROUP_ID | FETCH_HAS_OBJECT_ID | FETCH_HAS_PRIORITY;
+        tl += flags.serialize(w)?;
+        tl += object_header.group_id.serialize(w)?;
+        tl += object_header.object_id.serialize(w)?;
+        if w.remaining_mut() < 1 {
+            return Err(Error::ErrBufferTooShort);
+        }
+        w.put_u8(object_header.object_send_order as u8);
+        tl += 1;
+        tl += (payload.len() as u64).serialize(w)?;
         tl += payload.serialize(w)?;
         Ok(tl)
     }

@@ -472,7 +472,7 @@ impl SessionCore {
         self.data_streams
             .entry(stream_id)
             .or_insert_with(|| DataStreamState {
-                parser: MessageParser::new(self.config.use_web_transport),
+                parser: MessageParser::new_data_stream(self.config.use_web_transport),
                 partial_object: None,
             })
     }
@@ -2375,16 +2375,16 @@ mod test {
 
         let object_header = ObjectHeader {
             subscribe_id: 0,
-            track_alias: 9,
+            track_alias: 0,
             group_id: 1,
             object_id: 0,
             object_send_order: 0,
             object_status: ObjectStatus::Normal,
-            object_forwarding_preference: ObjectForwardingPreference::Object,
-            object_payload_length: None,
+            object_forwarding_preference: ObjectForwardingPreference::Track,
+            object_payload_length: Some(3),
         };
         let mut object_bytes = BytesMut::new();
-        let _ = MessageFramer::serialize_object(
+        let _ = MessageFramer::serialize_fetch_object(
             object_header,
             true,
             Bytes::from_static(b"abc"),

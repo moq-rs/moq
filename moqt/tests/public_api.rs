@@ -1010,16 +1010,21 @@ fn public_session_driver_buffers_fetch_object_until_fetch_ok() -> moqt::Result<(
 
     let object_header = ObjectHeader {
         subscribe_id: 0,
-        track_alias: 9,
+        track_alias: 0,
         group_id: 3,
         object_id: 4,
         object_send_order: 0,
         object_status: ObjectStatus::Normal,
-        object_forwarding_preference: ObjectForwardingPreference::Object,
-        object_payload_length: None,
+        object_forwarding_preference: ObjectForwardingPreference::Track,
+        object_payload_length: Some(3),
     };
     let mut stream = BytesMut::new();
-    MessageFramer::serialize_object(object_header, true, Bytes::from_static(b"xyz"), &mut stream)?;
+    MessageFramer::serialize_fetch_object(
+        object_header,
+        true,
+        Bytes::from_static(b"xyz"),
+        &mut stream,
+    )?;
 
     driver.on_stream_data(13, stream.freeze(), true)?;
     assert_eq!(driver.poll_event(), None);

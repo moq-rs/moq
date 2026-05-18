@@ -6,6 +6,22 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
 
+const FETCH_STREAM_TYPE: u64 = 0x05;
+const FETCH_HAS_SUBGROUP_ID: u64 = 0x03;
+const FETCH_HAS_OBJECT_ID: u64 = 0x04;
+const FETCH_HAS_GROUP_ID: u64 = 0x08;
+const FETCH_HAS_PRIORITY: u64 = 0x10;
+const FETCH_HAS_EXTENSIONS: u64 = 0x20;
+const FETCH_IS_DATAGRAM_LIKE: u64 = 0x40;
+const FETCH_END_OF_NON_EXISTENT_RANGE: u64 = 0x8c;
+const FETCH_END_OF_UNKNOWN_RANGE: u64 = 0x10c;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum ObjectStreamKind {
+    Legacy(MessageType),
+    Fetch,
+}
+
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ErrorCode {
     #[default]
@@ -33,6 +49,7 @@ pub enum MessageParserEvent {
 
 pub struct MessageParser {
     uses_web_transport: bool,
+    allow_fetch_streams: bool,
     no_more_data: bool, // Fatal error or fin. No more parsing.
     parsing_error: bool,
 
@@ -49,6 +66,7 @@ pub struct MessageParser {
     // Use object_stream_initialized() and object_payload_in_progress() to keep the
     // state straight.
     object_metadata: Option<ObjectHeader>,
+    object_stream_kind: Option<ObjectStreamKind>,
     payload_length_remaining: usize,
 
     parser_events: VecDeque<MessageParserEvent>,
@@ -56,16 +74,29 @@ pub struct MessageParser {
 
 impl MessageParser {
     pub fn new(use_web_transport: bool) -> Self {
+        Self::new_control(use_web_transport)
+    }
+
+    pub fn new_control(use_web_transport: bool) -> Self {
         Self {
             uses_web_transport: use_web_transport,
+            allow_fetch_streams: false,
             no_more_data: false,
             parsing_error: false,
 
             buffered_message: Default::default(),
             object_metadata: None,
+            object_stream_kind: None,
             payload_length_remaining: 0,
 
             parser_events: VecDeque::new(),
+        }
+    }
+
+    pub fn new_data_stream(use_web_transport: bool) -> Self {
+        Self {
+            allow_fetch_streams: true,
+            ..Self::new_control(use_web_transport)
         }
     }
 
@@ -191,14 +222,22 @@ impl MessageParser {
 
     fn process_message(&mut self, fin: bool) -> usize {
         if self.object_stream_initialized() && !self.object_payload_in_progress() {
-            // This is a follow-on object in a stream.
-            if let Some(object_metadata) = self.object_metadata.as_ref() {
-                return self.process_object(
-                    object_metadata
-                        .object_forwarding_preference
-                        .get_message_type(),
-                    fin,
-                );
+            match self.object_stream_kind {
+                Some(ObjectStreamKind::Legacy(message_type)) => {
+                    return self.process_object(message_type, fin);
+                }
+                Some(ObjectStreamKind::Fetch) => {
+                    return self.process_fetch_object(fin);
+                }
+                None => {}
+            }
+        }
+        if self.allow_fetch_streams {
+            let mut fetch_reader = self.buffered_message.as_ref();
+            if let Ok((stream_type, _)) = u64::deserialize(&mut fetch_reader) {
+                if stream_type == FETCH_STREAM_TYPE {
+                    return self.process_fetch_object(fin);
+                }
             }
         }
         let mut mt_reader = self.buffered_message.as_ref();
@@ -277,6 +316,7 @@ impl MessageParser {
                 }
             };
             self.object_metadata = Some(object_metadata);
+            self.object_stream_kind = Some(ObjectStreamKind::Legacy(message_type));
             processed_data += obl;
         }
 
@@ -455,6 +495,181 @@ impl MessageParser {
         Ok(total_len)
     }
 
+    fn process_fetch_object(&mut self, fin: bool) -> usize {
+        let mut processed_data = 0;
+        assert!(!self.object_payload_in_progress());
+        let previous = self.object_metadata;
+        let mut reader = self.buffered_message.as_ref();
+        let (object_metadata, header_len) =
+            match MessageParser::parse_fetch_header(&mut reader, previous) {
+                Ok(value) => value,
+                Err(Error::ErrUnexpectedEnd | Error::ErrBufferTooShort) => return 0,
+                Err(Error::ErrParseError(code, reason)) => {
+                    self.parse_error(code, reason);
+                    return 0;
+                }
+                Err(_) => return 0,
+            };
+        self.object_metadata = Some(object_metadata);
+        self.object_stream_kind = Some(ObjectStreamKind::Fetch);
+        processed_data += header_len;
+
+        let Some(object_metadata) = self.object_metadata.as_ref() else {
+            return 0;
+        };
+        let payload_length = object_metadata
+            .object_payload_length
+            .expect("fetch objects always have explicit lengths") as usize;
+        let available = self.buffered_message.remaining().saturating_sub(processed_data);
+        if fin && payload_length > available {
+            self.parse_error(
+                ErrorCode::ProtocolViolation,
+                "Received FIN mid-payload".to_string(),
+            );
+            return 0;
+        }
+
+        let payload_to_draw = payload_length.min(available);
+        let received_complete_message = payload_length <= available;
+        let mut payload_reader = &self.buffered_message.as_ref()[processed_data..];
+        self.parser_events
+            .push_back(MessageParserEvent::ObjectMessage(
+                *object_metadata,
+                payload_reader.copy_to_bytes(payload_to_draw),
+                received_complete_message,
+            ));
+        self.payload_length_remaining = payload_length - payload_to_draw;
+        processed_data += payload_to_draw;
+        processed_data
+    }
+
+    fn parse_fetch_header<R: Buf>(
+        r: &mut R,
+        previous: Option<ObjectHeader>,
+    ) -> Result<(ObjectHeader, usize)> {
+        let mut total_len = 0;
+        if previous.is_none() {
+            let (stream_type, stream_len) = u64::deserialize(r)?;
+            if stream_type != FETCH_STREAM_TYPE {
+                return Err(Error::ErrParseError(
+                    ErrorCode::ProtocolViolation,
+                    format!("invalid fetch stream type {}", stream_type),
+                ));
+            }
+            total_len += stream_len;
+        }
+
+        let request_id = if let Some(previous) = previous {
+            previous.subscribe_id
+        } else {
+            let (request_id, request_len) = u64::deserialize(r)?;
+            total_len += request_len;
+            request_id
+        };
+
+        let (serialization, serialization_len) = u64::deserialize(r)?;
+        total_len += serialization_len;
+        if serialization == FETCH_END_OF_NON_EXISTENT_RANGE
+            || serialization == FETCH_END_OF_UNKNOWN_RANGE
+        {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "fetch range indicators are not supported yet".to_string(),
+            ));
+        }
+        if (serialization & FETCH_IS_DATAGRAM_LIKE) == 0 {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "fetch subgroup streams are not supported yet".to_string(),
+            ));
+        }
+        if previous.is_none()
+            && ((serialization & FETCH_HAS_OBJECT_ID) == 0
+                || (serialization & FETCH_HAS_GROUP_ID) == 0
+                || (serialization & FETCH_HAS_PRIORITY) == 0
+                || (serialization & FETCH_HAS_SUBGROUP_ID) != 0)
+        {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "invalid serialization flags for first fetch object".to_string(),
+            ));
+        }
+
+        let group_id = if (serialization & FETCH_HAS_GROUP_ID) != 0 {
+            let (group_id, len) = u64::deserialize(r)?;
+            total_len += len;
+            group_id
+        } else if let Some(previous) = previous {
+            previous.group_id
+        } else {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "missing group_id in first fetch object".to_string(),
+            ));
+        };
+
+        let object_id = if (serialization & FETCH_HAS_OBJECT_ID) != 0 {
+            let (object_id, len) = u64::deserialize(r)?;
+            total_len += len;
+            object_id
+        } else if let Some(previous) = previous {
+            previous.object_id + 1
+        } else {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "missing object_id in first fetch object".to_string(),
+            ));
+        };
+
+        let object_send_order = if (serialization & FETCH_HAS_PRIORITY) != 0 {
+            if !r.has_remaining() {
+                return Err(Error::ErrUnexpectedEnd);
+            }
+            total_len += 1;
+            u64::from(r.get_u8())
+        } else if let Some(previous) = previous {
+            previous.object_send_order
+        } else {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "missing publisher priority in first fetch object".to_string(),
+            ));
+        };
+
+        if (serialization & FETCH_HAS_EXTENSIONS) != 0 {
+            let (extension_len, extension_len_size) = usize::deserialize(r)?;
+            total_len += extension_len_size;
+            if r.remaining() < extension_len {
+                return Err(Error::ErrBufferTooShort);
+            }
+            r.advance(extension_len);
+            total_len += extension_len;
+        }
+
+        let (payload_length, payload_len_size) = u64::deserialize(r)?;
+        total_len += payload_len_size;
+        if payload_length == 0 {
+            return Err(Error::ErrParseError(
+                ErrorCode::ProtocolViolation,
+                "zero-length fetch objects are not supported yet".to_string(),
+            ));
+        }
+
+        Ok((
+            ObjectHeader {
+                subscribe_id: request_id,
+                track_alias: request_id,
+                group_id,
+                object_id,
+                object_send_order,
+                object_status: ObjectStatus::Normal,
+                object_forwarding_preference: ObjectForwardingPreference::Track,
+                object_payload_length: Some(payload_length),
+            },
+            total_len,
+        ))
+    }
+
     fn parse_error(&mut self, error_code: ErrorCode, error_reason: String) {
         if self.parsing_error {
             return; // Don't send multiple parse errors.
@@ -469,7 +684,7 @@ impl MessageParser {
     // Returns true if the stream has delivered all object metadata common to all
     // objects on that stream.
     fn object_stream_initialized(&self) -> bool {
-        self.object_metadata.is_some()
+        self.object_metadata.is_some() && self.object_stream_kind.is_some()
     }
 
     // Returns true if the stream has delivered all metadata but not all payload
