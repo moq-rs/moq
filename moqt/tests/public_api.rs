@@ -290,3 +290,37 @@ fn public_wire_helpers_round_trip_object_stream() -> moqt::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn public_wire_helpers_round_trip_object_datagram() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_object_datagram(
+        ObjectHeader {
+            subscribe_id: 7,
+            track_alias: 9,
+            group_id: 1,
+            object_id: 2,
+            object_send_order: 3,
+            object_status: ObjectStatus::Normal,
+            object_forwarding_preference: ObjectForwardingPreference::Datagram,
+            object_payload_length: None,
+        },
+        Bytes::from_static(b"frame"),
+        &mut bytes,
+    )?;
+
+    let (header, payload) = MessageParser::process_datagram(&mut bytes.freeze().as_ref())?;
+    assert_eq!(header.subscribe_id, 7);
+    assert_eq!(header.track_alias, 9);
+    assert_eq!(header.group_id, 1);
+    assert_eq!(header.object_id, 2);
+    assert_eq!(header.object_send_order, 3);
+    assert_eq!(header.object_status, ObjectStatus::Normal);
+    assert_eq!(
+        header.object_forwarding_preference,
+        ObjectForwardingPreference::Datagram
+    );
+    assert_eq!(payload, Bytes::from_static(b"frame"));
+
+    Ok(())
+}
