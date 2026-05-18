@@ -1,10 +1,10 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
     ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType, FullSequence,
-    FullTrackName, ObjectForwardingPreference, ProtocolConfig, ProtocolPerspective, Role,
-    Serializer, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver,
-    SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeOk, Version,
-    WriteOutput,
+    FullTrackName, MessageFramer, ObjectForwardingPreference, ProtocolConfig,
+    ProtocolPerspective, Role, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver,
+    SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeOk,
+    Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -82,9 +82,9 @@ fn server_session_config() -> SessionConfig {
 }
 
 fn encode_control(message: ControlMessage) -> moqt::Result<Bytes> {
-    let mut buf = Vec::new();
-    let _ = message.serialize(&mut buf)?;
-    Ok(Bytes::from(buf))
+    let mut buf = BytesMut::new();
+    let _ = MessageFramer::serialize_control_message(message, &mut buf)?;
+    Ok(buf.freeze())
 }
 
 #[test]

@@ -18,6 +18,8 @@ pub use message::announce_error::AnnounceError;
 pub use message::announce_ok::AnnounceOk;
 pub use message::client_setup::ClientSetup;
 pub use message::go_away::GoAway;
+pub use message::message_framer::MessageFramer;
+pub use message::message_parser::{ErrorCode, MessageParser, MessageParserEvent};
 pub use message::object::{ObjectForwardingPreference, ObjectHeader, ObjectStatus};
 pub use message::server_setup::ServerSetup;
 pub use message::subscribe::Subscribe;
