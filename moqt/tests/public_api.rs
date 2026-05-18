@@ -1,11 +1,11 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
     ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType, FullSequence,
-    FullTrackName, MessageFramer, MessageParser, MessageParserEvent, ObjectForwardingPreference,
-    ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective, RemoteTrackOnObjectFragment,
-    Role, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
-    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeDone, SubscribeError,
-    SubscribeOk, Version, WriteOutput,
+    FullTrackName, GoAway, MessageFramer, MessageParser, MessageParserEvent,
+    ObjectForwardingPreference, ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective,
+    RemoteTrackOnObjectFragment, Role, ServerSetup, Session, SessionConfig, SessionCore,
+    SessionDriver, SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe,
+    SubscribeDone, SubscribeError, SubscribeOk, Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -430,6 +430,38 @@ fn public_session_external_subscribe_done_round_trip() -> moqt::Result<()> {
             status_code: 206,
             reason_phrase: "finished".to_string(),
             final_group_object: Some(FullSequence::new(7, 2)),
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_goaway_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::GoAway(GoAway {
+            new_session_uri: "https://example.com/moq-next".to_string(),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::GoAwayReceived {
+            new_session_uri: "https://example.com/moq-next".to_string(),
         })
     );
     Ok(())
