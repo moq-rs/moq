@@ -94,6 +94,13 @@ struct IncomingFetch {
     accepted: bool,
 }
 
+#[derive(Debug)]
+struct BufferedFetchFragment {
+    object_header: ObjectHeader,
+    payload: Bytes,
+    fin: bool,
+}
+
 struct DataStreamState {
     parser: MessageParser,
     partial_object: Option<(ObjectHeader, BytesMut)>,
@@ -343,6 +350,7 @@ pub struct SessionCore {
     active_outgoing_announces: HashSet<String>,
     pending_outgoing_fetches: HashMap<u64, Fetch>,
     active_outgoing_fetches: HashMap<u64, Fetch>,
+    buffered_outgoing_fetch_objects: HashMap<u64, VecDeque<BufferedFetchFragment>>,
     pending_outgoing_subscribes: HashMap<u64, Subscription>,
     active_outgoing_subscribes: HashMap<u64, Subscription>,
     closing_outgoing_subscribes: HashMap<u64, Subscription>,
@@ -377,6 +385,7 @@ impl SessionCore {
             active_outgoing_announces: HashSet::new(),
             pending_outgoing_fetches: HashMap::new(),
             active_outgoing_fetches: HashMap::new(),
+            buffered_outgoing_fetch_objects: HashMap::new(),
             pending_outgoing_subscribes: HashMap::new(),
             active_outgoing_subscribes: HashMap::new(),
             closing_outgoing_subscribes: HashMap::new(),
@@ -469,45 +478,6 @@ impl SessionCore {
         mut payload: Bytes,
         fin: bool,
     ) {
-        let Some(subscription) = self
-            .active_outgoing_subscribes
-            .get(&object_header.subscribe_id)
-        else {
-            self.close_with_protocol_violation(format!(
-                "received object for unknown subscribe_id {}",
-                object_header.subscribe_id
-            ));
-            return;
-        };
-        if subscription.track_alias != object_header.track_alias {
-            self.close_with_protocol_violation(format!(
-                "received object for subscribe_id {} with unexpected track_alias {}",
-                object_header.subscribe_id, object_header.track_alias
-            ));
-            return;
-        }
-
-        let full_track_name = {
-            let remote_track = self
-                .remote_tracks
-                .entry(object_header.track_alias)
-                .or_insert_with(|| {
-                    RemoteTrack::new(
-                        subscription.full_track_name.clone(),
-                        subscription.track_alias,
-                    )
-                });
-            if !remote_track.check_forwarding_preference(object_header.object_forwarding_preference)
-            {
-                self.close_with_protocol_violation(format!(
-                    "inconsistent forwarding preference for track_alias {}",
-                    object_header.track_alias
-                ));
-                return;
-            }
-            remote_track.full_track_name().clone()
-        };
-
         if !self.config.deliver_partial_objects && !fin {
             let data_stream = self.data_stream(stream_id);
             if let Some((buffered_header, partial)) = data_stream.partial_object.as_mut() {
@@ -540,14 +510,26 @@ impl SessionCore {
             }
         }
 
-        self.eouts.push_back(EventOut::ObjectReceived {
-            full_track_name,
-            fragment: RemoteTrackOnObjectFragment {
-                object_header,
-                payload,
-                fin,
-            },
-        });
+        let Some(full_track_name) = self.resolve_object_track_name(&object_header) else {
+            self.close_with_protocol_violation(format!(
+                "received object for unknown subscribe_id {}",
+                object_header.subscribe_id
+            ));
+            return;
+        };
+        if self.pending_outgoing_fetches.contains_key(&object_header.subscribe_id) {
+            self.buffered_outgoing_fetch_objects
+                .entry(object_header.subscribe_id)
+                .or_default()
+                .push_back(BufferedFetchFragment {
+                    object_header,
+                    payload,
+                    fin,
+                });
+            return;
+        }
+
+        self.push_object_received(full_track_name, object_header, payload, fin);
     }
 
     fn process_stream_data(&mut self, stream_id: StreamId, data: Bytes, fin: bool) {
@@ -650,6 +632,94 @@ impl SessionCore {
         if !track_name_in_use {
             self.remote_track_aliases
                 .remove(&subscription.full_track_name);
+        }
+    }
+
+    fn resolve_outgoing_fetch_track_name(&self, request_id: u64) -> Option<FullTrackName> {
+        let fetch = self
+            .active_outgoing_fetches
+            .get(&request_id)
+            .or_else(|| self.pending_outgoing_fetches.get(&request_id))?;
+        match &fetch.target {
+            FetchTarget::Standalone(standalone) => Some(standalone.full_track_name.clone()),
+            FetchTarget::RelativeJoining(joining) | FetchTarget::AbsoluteJoining(joining) => {
+                self.resolve_outgoing_fetch_track_name(joining.joining_request_id)
+            }
+        }
+    }
+
+    fn resolve_object_track_name(&self, object_header: &ObjectHeader) -> Option<FullTrackName> {
+        if let Some(subscription) = self.active_outgoing_subscribes.get(&object_header.subscribe_id)
+        {
+            if subscription.track_alias != object_header.track_alias {
+                return None;
+            }
+            return Some(subscription.full_track_name.clone());
+        }
+
+        if self.pending_outgoing_fetches.contains_key(&object_header.subscribe_id)
+            || self.active_outgoing_fetches.contains_key(&object_header.subscribe_id)
+        {
+            return self.resolve_outgoing_fetch_track_name(object_header.subscribe_id);
+        }
+
+        None
+    }
+
+    fn push_object_received(
+        &mut self,
+        full_track_name: FullTrackName,
+        object_header: ObjectHeader,
+        payload: Bytes,
+        fin: bool,
+    ) {
+        let remote_track = self
+            .remote_tracks
+            .entry(object_header.track_alias)
+            .or_insert_with(|| RemoteTrack::new(full_track_name.clone(), object_header.track_alias));
+        if remote_track.full_track_name() != &full_track_name {
+            self.close_with_protocol_violation(format!(
+                "track_alias {} changed track identity",
+                object_header.track_alias
+            ));
+            return;
+        }
+        if !remote_track.check_forwarding_preference(object_header.object_forwarding_preference) {
+            self.close_with_protocol_violation(format!(
+                "inconsistent forwarding preference for track_alias {}",
+                object_header.track_alias
+            ));
+            return;
+        }
+
+        self.eouts.push_back(EventOut::ObjectReceived {
+            full_track_name,
+            fragment: RemoteTrackOnObjectFragment {
+                object_header,
+                payload,
+                fin,
+            },
+        });
+    }
+
+    fn flush_buffered_fetch_objects(&mut self, request_id: u64) {
+        let Some(full_track_name) = self.resolve_outgoing_fetch_track_name(request_id) else {
+            self.close_with_protocol_violation(format!(
+                "received FETCH_OK for request_id {} without resolvable track",
+                request_id
+            ));
+            return;
+        };
+        let Some(buffered) = self.buffered_outgoing_fetch_objects.remove(&request_id) else {
+            return;
+        };
+        for fragment in buffered {
+            self.push_object_received(
+                full_track_name.clone(),
+                fragment.object_header,
+                fragment.payload,
+                fragment.fin,
+            );
         }
     }
 
@@ -1105,6 +1175,10 @@ impl SessionCore {
                     self.close_with_protocol_violation("received FETCH before session setup");
                     return Ok(());
                 }
+                if self.local_max_request_id > 0 && fetch.request_id >= self.local_max_request_id {
+                    self.close_with_protocol_violation("received request with too large ID");
+                    return Ok(());
+                }
                 if self.incoming_fetches.contains_key(&fetch.request_id) {
                     self.close_with_protocol_violation(format!(
                         "received duplicate FETCH for request_id {}",
@@ -1162,6 +1236,7 @@ impl SessionCore {
                     end_of_track: fetch_ok.end_of_track,
                     end_location: fetch_ok.end_location,
                 });
+                self.flush_buffered_fetch_objects(fetch_ok.request_id);
             }
             ControlMessage::RequestsBlocked(requests_blocked) => {
                 if self.state != SessionState::Established {
@@ -1414,6 +1489,15 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                     ));
                 }
                 let request_id = self.next_request_id;
+                if self
+                    .peer_max_request_id
+                    .is_some_and(|peer_max_request_id| request_id >= peer_max_request_id)
+                {
+                    return Err(crate::Error::ErrOther(format!(
+                        "cannot send FETCH beyond peer MAX_REQUEST_ID {}",
+                        self.peer_max_request_id.expect("checked above")
+                    )));
+                }
                 self.next_request_id += 1;
                 let fetch = Fetch {
                     request_id,
@@ -1466,6 +1550,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         request_id
                     )));
                 }
+                self.buffered_outgoing_fetch_objects.remove(&request_id);
                 self.send_control_message(ControlMessage::FetchCancel(FetchCancel {
                     request_id,
                 }))?;
@@ -1852,6 +1937,9 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                 self.used_track_aliases.clear();
                 self.pending_outgoing_announces.clear();
                 self.active_outgoing_announces.clear();
+                self.pending_outgoing_fetches.clear();
+                self.active_outgoing_fetches.clear();
+                self.buffered_outgoing_fetch_objects.clear();
                 self.pending_outgoing_subscribes.clear();
                 self.active_outgoing_subscribes.clear();
                 self.closing_outgoing_subscribes.clear();
@@ -2225,6 +2313,97 @@ mod test {
                 request_id: 0,
                 end_of_track: false,
                 end_location: FullSequence::new(1, 0),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn client_buffers_fetch_object_until_fetch_ok() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Fetch {
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                start: FullSequence::new(0, 0),
+                end: FullSequence::new(1, 0),
+            }),
+            authorization_info: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let object_header = ObjectHeader {
+            subscribe_id: 0,
+            track_alias: 9,
+            group_id: 1,
+            object_id: 0,
+            object_send_order: 0,
+            object_status: ObjectStatus::Normal,
+            object_forwarding_preference: ObjectForwardingPreference::Object,
+            object_payload_length: None,
+        };
+        let mut object_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_object(
+            object_header,
+            true,
+            Bytes::from_static(b"abc"),
+            &mut object_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 22,
+            data: object_bytes.freeze(),
+            fin: true,
+        })?;
+        assert_eq!(protocol.poll_event(), None);
+
+        let mut fetch_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::FetchOk(FetchOk {
+                request_id: 0,
+                end_of_track: false,
+                end_location: FullSequence::new(1, 0),
+            }),
+            &mut fetch_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: fetch_ok_bytes.freeze(),
+            fin: true,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::FetchAccepted {
+                request_id: 0,
+                end_of_track: false,
+                end_location: FullSequence::new(1, 0),
+            })
+        );
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::ObjectReceived {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                fragment: RemoteTrackOnObjectFragment {
+                    object_header,
+                    payload: Bytes::from_static(b"abc"),
+                    fin: true,
+                },
             })
         );
         Ok(())
