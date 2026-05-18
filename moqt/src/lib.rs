@@ -29,7 +29,7 @@ pub use message::track_status::TrackStatus;
 pub use message::track_status_request::TrackStatusRequest;
 pub use message::unannounce::UnAnnounce;
 pub use message::unsubscribe::UnSubscribe;
-pub use message::{FilterType, FullSequence, FullTrackName, Role, Version};
+pub use message::{ControlMessage, FilterType, FullSequence, FullTrackName, Role, Version};
 pub use protocol::{
     Command, Config as ProtocolConfig, EventIn, EventOut, Perspective as ProtocolPerspective,
     ReadInput, SessionCore, StreamPurpose, WriteOutput,

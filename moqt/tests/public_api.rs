@@ -1,10 +1,10 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
-    ClientSetup, Command, Connection, EventIn, EventOut, FilterType, FullSequence,
-    FullTrackName, ObjectForwardingPreference, ProtocolConfig, ProtocolPerspective, Role,
-    Serializer, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver,
-    SessionPerspective, SessionTransport, StreamPurpose, Subscribe, SubscribeOk, Version,
-    WriteOutput,
+    ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType,
+    FullSequence, FullTrackName, ObjectForwardingPreference, ProtocolConfig,
+    ProtocolPerspective, Role, Serializer, ServerSetup, Session, SessionConfig, SessionCore,
+    SessionDriver, SessionPerspective, SessionTransport, StreamPurpose, Subscribe, SubscribeOk,
+    Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -81,9 +81,8 @@ fn server_session_config() -> SessionConfig {
     }
 }
 
-fn encode_control<T: Serializer>(message_type: u64, message: &T) -> moqt::Result<Bytes> {
+fn encode_control(message: ControlMessage) -> moqt::Result<Bytes> {
     let mut buf = Vec::new();
-    let _ = message_type.serialize(&mut buf)?;
     let _ = message.serialize(&mut buf)?;
     Ok(Bytes::from(buf))
 }
@@ -167,13 +166,10 @@ fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
     session.on_transport_connected()?;
     session.on_stream_data(
         0,
-        encode_control(
-            0x41,
-            &ServerSetup {
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
                 supported_version: Version::Draft04,
                 role: Some(Role::PubSub),
-            },
-        )?,
+            }))?,
         false,
     )?;
     let _ = session.poll_event();
@@ -187,14 +183,11 @@ fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
 
     session.on_stream_data(
         0,
-        encode_control(
-            0x04,
-            &SubscribeOk {
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
                 subscribe_id: 0,
                 expires: 30,
                 largest_group_object: Some(FullSequence::new(7, 2)),
-            },
-        )?,
+            }))?,
         false,
     )?;
 
@@ -224,15 +217,12 @@ fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
 
     session.on_stream_data(
         0,
-        encode_control(
-            0x40,
-            &ClientSetup {
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
                 supported_versions: vec![Version::Draft04],
                 role: Some(Role::PubSub),
                 path: Some("/moq".to_string()),
                 uses_web_transport: false,
-            },
-        )?,
+            }))?,
         false,
     )?;
     let _ = session.poll_event();
@@ -245,7 +235,7 @@ fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
         filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
         authorization_info: None,
     };
-    session.on_stream_data(0, encode_control(0x03, &subscribe)?, false)?;
+    session.on_stream_data(0, encode_control(ControlMessage::Subscribe(subscribe.clone()))?, false)?;
 
     assert_eq!(session.poll_event(), Some(EventOut::SubscribeReceived(subscribe)));
     Ok(())
