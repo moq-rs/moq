@@ -324,3 +324,32 @@ fn public_wire_helpers_round_trip_object_datagram() -> moqt::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn public_wire_helpers_round_trip_control_message() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ControlMessage(ControlMessage::ClientSetup(setup))) => {
+            assert_eq!(setup.supported_versions, vec![Version::Draft04]);
+            assert_eq!(setup.role, Some(Role::PubSub));
+            assert_eq!(setup.path, Some("/moq".to_string()));
+            assert!(!setup.uses_web_transport);
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
