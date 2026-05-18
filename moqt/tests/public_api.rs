@@ -229,6 +229,52 @@ fn public_session_driver_surfaces_incoming_subscribe() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_subscribe_accepted() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: Some(FullSequence::new(7, 2)),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::SubscribeAccepted {
+            subscribe_id: 0,
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            track_alias: 0,
+            expires: 30,
+            largest_group_object: Some(FullSequence::new(7, 2)),
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
     let transport = FakeTransport::new(10);
     let mut driver = SessionDriver::new(server_protocol_config(), transport);
@@ -356,6 +402,69 @@ fn public_session_driver_surfaces_incoming_object_datagram() -> moqt::Result<()>
     )?;
 
     driver.on_datagram(datagram.freeze())?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::ObjectReceived {
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            fragment: RemoteTrackOnObjectFragment {
+                object_header,
+                payload: Bytes::from_static(b"xyz"),
+                fin: true,
+            },
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_driver_surfaces_incoming_object_stream() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: None,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    let object_header = ObjectHeader {
+        subscribe_id: 0,
+        track_alias: 0,
+        group_id: 3,
+        object_id: 4,
+        object_send_order: 0,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Object,
+        object_payload_length: None,
+    };
+    let mut stream = BytesMut::new();
+    MessageFramer::serialize_object(object_header, true, Bytes::from_static(b"xyz"), &mut stream)?;
+
+    driver.on_stream_data(13, stream.freeze(), true)?;
 
     assert_eq!(
         driver.poll_event(),
