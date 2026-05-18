@@ -24,6 +24,7 @@ impl Display for ErrorCode {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MessageParserEvent {
     ParsingError(ErrorCode, String),
     ObjectMessage(ObjectHeader, Bytes, bool),

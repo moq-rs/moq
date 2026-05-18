@@ -136,7 +136,7 @@ impl MessageFramer {
         }
     }
 
-    pub(crate) fn serialize_object<W: BufMut>(
+    pub fn serialize_object<W: BufMut>(
         object_header: ObjectHeader,
         is_first_in_stream: bool,
         payload: Bytes,
