@@ -6,7 +6,8 @@ use moqt::{
     ObjectStatus, ProtocolConfig, ProtocolPerspective, RemoteTrackOnObjectFragment, Role,
     ServerSetup, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
     SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeDone, SubscribeError,
-    SubscribeOk, TrackStatus, TrackStatusRequest, UnAnnounce, UnSubscribe, Version, WriteOutput,
+    SubscribeOk, SubscribeUpdate, TrackStatus, TrackStatusRequest, UnAnnounce, UnSubscribe,
+    Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -791,6 +792,65 @@ fn public_session_external_server_receives_unsubscribe() -> moqt::Result<()> {
         session.poll_event(),
         Some(EventOut::UnsubscribeReceived { subscribe_id: 7 })
     );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_server_receives_subscribe_update() -> moqt::Result<()> {
+    let mut session = Session::new(server_session_config(), Connection::QUIC);
+
+    session.handle_command(Command::RegisterLocalTrack {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        forwarding_preference: ObjectForwardingPreference::Datagram,
+        next_sequence: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::Subscribe(Subscribe {
+            subscribe_id: 7,
+            track_alias: 9,
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+            authorization_info: None,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.handle_command(Command::SubscribeOk {
+        subscribe_id: 7,
+        expires: 60,
+        largest_group_object: None,
+    })?;
+
+    let update = SubscribeUpdate {
+        subscribe_id: 7,
+        start_group_object: FullSequence::new(3, 1),
+        end_group_object: Some(FullSequence::new(5, 9)),
+        authorization_info: Some("authz".to_string()),
+    };
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::SubscribeUpdate(update.clone()))?,
+        false,
+    )?;
+
+    assert_eq!(session.poll_event(), Some(EventOut::SubscribeUpdated(update)));
     Ok(())
 }
 
