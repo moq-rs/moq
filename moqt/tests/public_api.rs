@@ -322,6 +322,65 @@ fn public_session_driver_surfaces_subscribe_rejected() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_subscribe_ended() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: None,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::SubscribeDone(SubscribeDone {
+            subscribe_id: 0,
+            status_code: 206,
+            reason_phrase: "finished".to_string(),
+            final_group_object: Some(FullSequence::new(7, 2)),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::SubscribeEnded {
+            subscribe_id: 0,
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            track_alias: 0,
+            status_code: 206,
+            reason_phrase: "finished".to_string(),
+            final_group_object: Some(FullSequence::new(7, 2)),
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
     let transport = FakeTransport::new(10);
     let mut driver = SessionDriver::new(server_protocol_config(), transport);
