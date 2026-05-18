@@ -835,7 +835,7 @@ fn public_session_driver_surfaces_incoming_fetch() -> moqt::Result<()> {
     let _ = driver.poll_event();
 
     let fetch = Fetch {
-        request_id: 7,
+        request_id: 8,
         target: FetchTarget::Standalone(StandaloneFetch {
             full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
             start: FullSequence::new(3, 1),
@@ -920,7 +920,7 @@ fn public_session_driver_surfaces_fetch_cancelled() -> moqt::Result<()> {
     driver.on_stream_data(
         0,
         encode_control(ControlMessage::Fetch(Fetch {
-            request_id: 7,
+            request_id: 8,
             target: FetchTarget::Standalone(StandaloneFetch {
                 full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
                 start: FullSequence::new(3, 1),
@@ -934,13 +934,13 @@ fn public_session_driver_surfaces_fetch_cancelled() -> moqt::Result<()> {
 
     driver.on_stream_data(
         0,
-        encode_control(ControlMessage::FetchCancel(FetchCancel { request_id: 7 }))?,
+        encode_control(ControlMessage::FetchCancel(FetchCancel { request_id: 8 }))?,
         false,
     )?;
 
     assert_eq!(
         driver.poll_event(),
-        Some(EventOut::FetchCancelled { request_id: 7 })
+        Some(EventOut::FetchCancelled { request_id: 8 })
     );
     Ok(())
 }
@@ -963,22 +963,22 @@ fn public_session_driver_surfaces_request_window_events() -> moqt::Result<()> {
 
     driver.on_stream_data(
         11,
-        encode_control(ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 12 }))?,
+        encode_control(ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 120 }))?,
         false,
     )?;
     driver.on_stream_data(
         11,
-        encode_control(ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 12 }))?,
+        encode_control(ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 120 }))?,
         false,
     )?;
 
     assert_eq!(
         driver.poll_event(),
-        Some(EventOut::MaxRequestIdReceived { max_request_id: 12 })
+        Some(EventOut::MaxRequestIdReceived { max_request_id: 120 })
     );
     assert_eq!(
         driver.poll_event(),
-        Some(EventOut::RequestsBlockedReceived { max_request_id: 12 })
+        Some(EventOut::RequestsBlockedReceived { max_request_id: 120 })
     );
     Ok(())
 }

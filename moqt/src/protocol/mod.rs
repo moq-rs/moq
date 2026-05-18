@@ -31,6 +31,8 @@ use sansio::Protocol;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+const DEFAULT_INITIAL_MAX_REQUEST_ID: u64 = 100;
+
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Perspective {
     #[default]
@@ -371,6 +373,7 @@ pub struct SessionCore {
 
 impl SessionCore {
     pub fn new(config: Config) -> Self {
+        let perspective = config.perspective;
         Self {
             config,
             state: SessionState::AwaitingSetup,
@@ -396,10 +399,13 @@ impl SessionCore {
             pending_data_stream_opens: VecDeque::new(),
             publisher_streams: HashMap::new(),
             next_remote_track_alias: 0,
-            next_request_id: 0,
+            next_request_id: match perspective {
+                Perspective::Server => 1,
+                Perspective::Client => 0,
+            },
             next_subscribe_id: 0,
-            local_max_request_id: 0,
-            peer_max_request_id: None,
+            local_max_request_id: DEFAULT_INITIAL_MAX_REQUEST_ID,
+            peer_max_request_id: Some(DEFAULT_INITIAL_MAX_REQUEST_ID),
             wouts: VecDeque::new(),
             eouts: VecDeque::new(),
         }
@@ -744,6 +750,14 @@ impl SessionCore {
                 (start, None)
             }
         }
+    }
+
+    fn request_id_is_valid_for_peer(&self, request_id: u64) -> bool {
+        if request_id >= self.local_max_request_id {
+            return false;
+        }
+
+        (request_id % 2 == 0) == (self.config.perspective == Perspective::Server)
     }
 
     fn on_control_message(&mut self, control_message: ControlMessage) -> Result<()> {
@@ -1175,7 +1189,18 @@ impl SessionCore {
                     self.close_with_protocol_violation("received FETCH before session setup");
                     return Ok(());
                 }
-                if self.local_max_request_id > 0 && fetch.request_id >= self.local_max_request_id {
+                if !self.request_id_is_valid_for_peer(fetch.request_id) {
+                    let reason = if fetch.request_id >= self.local_max_request_id {
+                        "received request with too large ID"
+                    } else {
+                        "request ID evenness incorrect"
+                    };
+                    self.close_with_protocol_violation(reason);
+                    return Ok(());
+                }
+                if self.active_outgoing_fetches.contains_key(&fetch.request_id)
+                    || self.pending_outgoing_fetches.contains_key(&fetch.request_id)
+                {
                     self.close_with_protocol_violation("received request with too large ID");
                     return Ok(());
                 }
@@ -1498,7 +1523,7 @@ impl Protocol<ReadInput, Command, EventIn> for SessionCore {
                         self.peer_max_request_id.expect("checked above")
                     )));
                 }
-                self.next_request_id += 1;
+                self.next_request_id += 2;
                 let fetch = Fetch {
                     request_id,
                     target,
@@ -2410,6 +2435,171 @@ mod test {
     }
 
     #[test]
+    fn server_sends_odd_fetch_request_ids() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 24,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ClientSetup(ClientSetup {
+                        supported_versions: vec![Version::Draft04],
+                        role: Some(Role::PubSub),
+                        path: Some("/moq".to_string()),
+                        uses_web_transport: false,
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Fetch {
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                start: FullSequence::new(0, 0),
+                end: FullSequence::new(1, 0),
+            }),
+            authorization_info: None,
+        })?;
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected first fetch bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        let Some(MessageParserEvent::ControlMessage(ControlMessage::Fetch(fetch))) =
+            parser.poll_event()
+        else {
+            panic!("expected first fetch");
+        };
+        assert_eq!(fetch.request_id, 1);
+
+        protocol.handle_write(Command::Fetch {
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                start: FullSequence::new(2, 0),
+                end: FullSequence::new(3, 0),
+            }),
+            authorization_info: None,
+        })?;
+        let Some(WriteOutput::SendStream { bytes, .. }) = protocol.poll_write() else {
+            panic!("expected second fetch bytes");
+        };
+        let mut parser = MessageParser::new(false);
+        parser.process_data(&mut bytes.as_ref(), false);
+        let Some(MessageParserEvent::ControlMessage(ControlMessage::Fetch(fetch))) =
+            parser.poll_event()
+        else {
+            panic!("expected second fetch");
+        };
+        assert_eq!(fetch.request_id, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn server_rejects_fetch_with_invalid_request_id_evenness() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 26,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut fetch_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Fetch(Fetch {
+                request_id: 1,
+                target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                    full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+                    start: FullSequence::new(0, 0),
+                    end: FullSequence::new(1, 0),
+                }),
+                authorization_info: None,
+            }),
+            &mut fetch_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 26,
+            data: fetch_bytes.freeze(),
+            fin: false,
+        })?;
+
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::Close {
+                code: 1,
+                reason: "request ID evenness incorrect".to_string(),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn server_rejects_fetch_beyond_initial_request_window() -> Result<()> {
+        let mut protocol = SessionCore::new(server_config(false));
+        let mut client_setup_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::ClientSetup(ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            }),
+            &mut client_setup_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 28,
+            data: client_setup_bytes.freeze(),
+            fin: false,
+        })?;
+        let _ = protocol.poll_write();
+        let _ = protocol.poll_event();
+
+        let mut fetch_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::Fetch(Fetch {
+                request_id: DEFAULT_INITIAL_MAX_REQUEST_ID,
+                target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                    full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+                    start: FullSequence::new(0, 0),
+                    end: FullSequence::new(1, 0),
+                }),
+                authorization_info: None,
+            }),
+            &mut fetch_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 28,
+            data: fetch_bytes.freeze(),
+            fin: false,
+        })?;
+
+        assert_eq!(
+            protocol.poll_write(),
+            Some(WriteOutput::Close {
+                code: 1,
+                reason: "received request with too large ID".to_string(),
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
     fn server_receives_fetch_and_handles_fetch_lifecycle() -> Result<()> {
         let mut protocol = SessionCore::new(server_config(false));
         let mut client_setup_bytes = BytesMut::new();
@@ -2431,7 +2621,7 @@ mod test {
         let _ = protocol.poll_event();
 
         let fetch = Fetch {
-            request_id: 11,
+            request_id: 10,
             target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
                 full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
                 start: FullSequence::new(3, 1),
@@ -2458,7 +2648,7 @@ mod test {
         );
 
         protocol.handle_write(Command::FetchOk {
-            request_id: 11,
+            request_id: 10,
             end_of_track: true,
             end_location: FullSequence::new(5, 0),
         })?;
@@ -2471,7 +2661,7 @@ mod test {
             parser.poll_event(),
             Some(MessageParserEvent::ControlMessage(ControlMessage::FetchOk(
                 FetchOk {
-                    request_id: 11,
+                    request_id: 10,
                     end_of_track: true,
                     end_location: FullSequence::new(5, 0),
                 }
@@ -2483,7 +2673,7 @@ mod test {
             data: {
                 let mut bytes = BytesMut::new();
                 let _ = MessageFramer::serialize_control_message(
-                    ControlMessage::FetchCancel(FetchCancel { request_id: 11 }),
+                    ControlMessage::FetchCancel(FetchCancel { request_id: 10 }),
                     &mut bytes,
                 )?;
                 bytes.freeze()
@@ -2493,7 +2683,7 @@ mod test {
 
         assert_eq!(
             protocol.poll_event(),
-            Some(EventOut::FetchCancelled { request_id: 11 })
+            Some(EventOut::FetchCancelled { request_id: 10 })
         );
         Ok(())
     }
@@ -2523,11 +2713,11 @@ mod test {
             data: {
                 let mut bytes = BytesMut::new();
                 let _ = MessageFramer::serialize_control_message(
-                    ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 12 }),
+                    ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 120 }),
                     &mut bytes,
                 )?;
                 let _ = MessageFramer::serialize_control_message(
-                    ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 12 }),
+                    ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 120 }),
                     &mut bytes,
                 )?;
                 bytes.freeze()
@@ -2537,11 +2727,11 @@ mod test {
 
         assert_eq!(
             protocol.poll_event(),
-            Some(EventOut::MaxRequestIdReceived { max_request_id: 12 })
+            Some(EventOut::MaxRequestIdReceived { max_request_id: 120 })
         );
         assert_eq!(
             protocol.poll_event(),
-            Some(EventOut::RequestsBlockedReceived { max_request_id: 12 })
+            Some(EventOut::RequestsBlockedReceived { max_request_id: 120 })
         );
         Ok(())
     }
