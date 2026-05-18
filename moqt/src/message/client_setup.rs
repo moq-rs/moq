@@ -9,7 +9,7 @@ pub struct ClientSetup {
     pub supported_versions: Vec<Version>,
     pub role: Option<Role>,
     pub path: Option<String>,
-    pub(crate) uses_web_transport: bool,
+    pub uses_web_transport: bool,
 }
 
 impl ClientSetup {

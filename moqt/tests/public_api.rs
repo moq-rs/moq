@@ -1,8 +1,10 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
-    Command, Connection, EventIn, EventOut, ObjectForwardingPreference, ProtocolConfig,
-    ProtocolPerspective, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
-    SessionTransport, StreamPurpose, Version, WriteOutput,
+    ClientSetup, Command, Connection, EventIn, EventOut, FilterType, FullSequence,
+    FullTrackName, ObjectForwardingPreference, ProtocolConfig, ProtocolPerspective, Role,
+    Serializer, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver,
+    SessionPerspective, SessionTransport, StreamPurpose, Subscribe, SubscribeOk, Version,
+    WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -67,6 +69,23 @@ fn client_session_config() -> SessionConfig {
         path: "/moq".to_string(),
         deliver_partial_objects: false,
     }
+}
+
+fn server_session_config() -> SessionConfig {
+    SessionConfig {
+        version: Version::Draft04,
+        perspective: SessionPerspective::Server,
+        use_web_transport: false,
+        path: "/moq".to_string(),
+        deliver_partial_objects: false,
+    }
+}
+
+fn encode_control<T: Serializer>(message_type: u64, message: &T) -> moqt::Result<Bytes> {
+    let mut buf = Vec::new();
+    let _ = message_type.serialize(&mut buf)?;
+    let _ = message.serialize(&mut buf)?;
+    Ok(Bytes::from(buf))
 }
 
 #[test]
@@ -138,5 +157,96 @@ fn public_session_wrapper_smoke_test() -> moqt::Result<()> {
     })?;
 
     let _transport = session.into_transport();
+    Ok(())
+}
+
+#[test]
+fn public_session_external_subscribe_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(
+            0x41,
+            &ServerSetup {
+                supported_version: Version::Draft04,
+                role: Some(Role::PubSub),
+            },
+        )?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(
+            0x04,
+            &SubscribeOk {
+                subscribe_id: 0,
+                expires: 30,
+                largest_group_object: Some(FullSequence::new(7, 2)),
+            },
+        )?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::SubscribeAccepted {
+            subscribe_id: 0,
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            track_alias: 0,
+            expires: 30,
+            largest_group_object: Some(FullSequence::new(7, 2)),
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
+    let mut session = Session::new(server_session_config(), Connection::QUIC);
+
+    session.handle_command(Command::RegisterLocalTrack {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        forwarding_preference: ObjectForwardingPreference::Datagram,
+        next_sequence: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(
+            0x40,
+            &ClientSetup {
+                supported_versions: vec![Version::Draft04],
+                role: Some(Role::PubSub),
+                path: Some("/moq".to_string()),
+                uses_web_transport: false,
+            },
+        )?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    let subscribe = Subscribe {
+        subscribe_id: 7,
+        track_alias: 9,
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+        authorization_info: None,
+    };
+    session.on_stream_data(0, encode_control(0x03, &subscribe)?, false)?;
+
+    assert_eq!(session.poll_event(), Some(EventOut::SubscribeReceived(subscribe)));
     Ok(())
 }
