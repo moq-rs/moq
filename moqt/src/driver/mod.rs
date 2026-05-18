@@ -9,7 +9,7 @@ use sansio::Protocol;
 use std::collections::VecDeque;
 use std::time::Instant;
 
-pub(crate) trait SessionTransport {
+pub trait SessionTransport {
     fn open_bi_stream(&mut self, purpose: StreamPurpose) -> Result<StreamId>;
     fn send_stream(&mut self, stream_id: StreamId, bytes: BytesMut, fin: bool) -> Result<()>;
     fn send_datagram(&mut self, bytes: Bytes) -> Result<()>;
@@ -36,7 +36,7 @@ impl SessionTransport for Connection {
     }
 }
 
-pub(crate) struct SessionDriver<T> {
+pub struct SessionDriver<T> {
     protocol: SessionCore,
     transport: T,
     reads: VecDeque<ReadOutput>,
@@ -44,7 +44,7 @@ pub(crate) struct SessionDriver<T> {
 }
 
 impl<T: SessionTransport> SessionDriver<T> {
-    pub(crate) fn new(config: Config, transport: T) -> Self {
+    pub fn new(config: Config, transport: T) -> Self {
         Self {
             protocol: SessionCore::new(config),
             transport,
@@ -53,34 +53,29 @@ impl<T: SessionTransport> SessionDriver<T> {
         }
     }
 
-    pub(crate) fn transport(&self) -> &T {
+    pub fn transport(&self) -> &T {
         &self.transport
     }
 
-    pub(crate) fn transport_mut(&mut self) -> &mut T {
+    pub fn transport_mut(&mut self) -> &mut T {
         &mut self.transport
     }
 
-    pub(crate) fn into_transport(self) -> T {
+    pub fn into_transport(self) -> T {
         self.transport
     }
 
-    pub(crate) fn on_transport_connected(&mut self) -> Result<()> {
+    pub fn on_transport_connected(&mut self) -> Result<()> {
         self.protocol.handle_event(EventIn::TransportConnected)?;
         self.flush()
     }
 
-    pub(crate) fn on_transport_closed(&mut self) -> Result<()> {
+    pub fn on_transport_closed(&mut self) -> Result<()> {
         self.protocol.handle_event(EventIn::TransportClosed)?;
         self.flush()
     }
 
-    pub(crate) fn on_stream_opened(
-        &mut self,
-        stream_id: StreamId,
-        bidi: bool,
-        local: bool,
-    ) -> Result<()> {
+    pub fn on_stream_opened(&mut self, stream_id: StreamId, bidi: bool, local: bool) -> Result<()> {
         self.protocol.handle_event(EventIn::StreamOpened {
             stream_id,
             bidi,
@@ -89,18 +84,13 @@ impl<T: SessionTransport> SessionDriver<T> {
         self.flush()
     }
 
-    pub(crate) fn on_stream_closed(&mut self, stream_id: StreamId) -> Result<()> {
+    pub fn on_stream_closed(&mut self, stream_id: StreamId) -> Result<()> {
         self.protocol
             .handle_event(EventIn::StreamClosed { stream_id })?;
         self.flush()
     }
 
-    pub(crate) fn on_stream_data(
-        &mut self,
-        stream_id: StreamId,
-        data: Bytes,
-        fin: bool,
-    ) -> Result<()> {
+    pub fn on_stream_data(&mut self, stream_id: StreamId, data: Bytes, fin: bool) -> Result<()> {
         self.protocol.handle_read(ReadInput::StreamData {
             stream_id,
             data,
@@ -109,30 +99,30 @@ impl<T: SessionTransport> SessionDriver<T> {
         self.flush()
     }
 
-    pub(crate) fn on_datagram(&mut self, bytes: Bytes) -> Result<()> {
+    pub fn on_datagram(&mut self, bytes: Bytes) -> Result<()> {
         self.protocol.handle_read(ReadInput::Datagram(bytes))?;
         self.flush()
     }
 
-    pub(crate) fn handle_command(&mut self, command: Command) -> Result<()> {
+    pub fn handle_command(&mut self, command: Command) -> Result<()> {
         self.protocol.handle_write(command)?;
         self.flush()
     }
 
-    pub(crate) fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+    pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
         self.protocol.handle_timeout(now)?;
         self.flush()
     }
 
-    pub(crate) fn poll_timeout(&mut self) -> Option<Instant> {
+    pub fn poll_timeout(&mut self) -> Option<Instant> {
         self.protocol.poll_timeout()
     }
 
-    pub(crate) fn poll_read(&mut self) -> Option<ReadOutput> {
+    pub fn poll_read(&mut self) -> Option<ReadOutput> {
         self.reads.pop_front()
     }
 
-    pub(crate) fn poll_event(&mut self) -> Option<EventOut> {
+    pub fn poll_event(&mut self) -> Option<EventOut> {
         self.events.pop_front()
     }
 

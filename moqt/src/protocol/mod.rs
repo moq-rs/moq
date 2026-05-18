@@ -27,14 +27,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
-pub(crate) enum Perspective {
+pub enum Perspective {
     #[default]
     Server,
     Client,
 }
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
-pub(crate) struct Config {
+pub struct Config {
     pub version: Version,
     pub perspective: Perspective,
     pub use_web_transport: bool,
@@ -43,13 +43,13 @@ pub(crate) struct Config {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum StreamPurpose {
+pub enum StreamPurpose {
     Control,
     Data,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum ReadInput {
+pub enum ReadInput {
     StreamData {
         stream_id: StreamId,
         data: Bytes,
@@ -59,7 +59,7 @@ pub(crate) enum ReadInput {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum ReadOutput {
+pub enum ReadOutput {
     StreamData {
         stream_id: StreamId,
         data: Bytes,
@@ -114,7 +114,7 @@ struct PublisherStreamBinding {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum Command {
+pub enum Command {
     Close {
         code: u64,
         reason: String,
@@ -200,7 +200,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum EventIn {
+pub enum EventIn {
     TransportConnected,
     TransportClosed,
     StreamOpened {
@@ -214,7 +214,7 @@ pub(crate) enum EventIn {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum EventOut {
+pub enum EventOut {
     SessionEstablished {
         peer_role: Option<Role>,
         path: Option<String>,
@@ -274,7 +274,7 @@ pub(crate) enum EventOut {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum WriteOutput {
+pub enum WriteOutput {
     OpenBiStream {
         purpose: StreamPurpose,
     },
@@ -295,7 +295,7 @@ pub(crate) enum WriteOutput {
 /// This sits alongside the older `Handler`-based session code while the rewrite
 /// is in progress. It currently covers only the earliest lifecycle needed to
 /// bootstrap a client control stream and emit `CLIENT_SETUP`.
-pub(crate) struct SessionCore {
+pub struct SessionCore {
     config: Config,
     state: SessionState,
     control_stream_id: Option<StreamId>,
@@ -323,7 +323,7 @@ pub(crate) struct SessionCore {
 }
 
 impl SessionCore {
-    pub(crate) fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
             config,
             state: SessionState::AwaitingSetup,

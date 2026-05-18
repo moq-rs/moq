@@ -31,75 +31,70 @@ impl From<config::Config> for protocol::Config {
     }
 }
 
-pub(crate) struct Session {
+pub struct Session {
     driver: SessionDriver<Connection>,
 }
 
 impl Session {
-    pub(crate) fn new(config: config::Config, conn: Connection) -> Self {
+    pub fn new(config: config::Config, conn: Connection) -> Self {
         Self {
             driver: SessionDriver::new(config.into(), conn),
         }
     }
 
-    pub(crate) fn transport(&self) -> &Connection {
+    pub fn transport(&self) -> &Connection {
         self.driver.transport()
     }
 
-    pub(crate) fn transport_mut(&mut self) -> &mut Connection {
+    pub fn transport_mut(&mut self) -> &mut Connection {
         self.driver.transport_mut()
     }
 
-    pub(crate) fn into_transport(self) -> Connection {
+    pub fn into_transport(self) -> Connection {
         self.driver.into_transport()
     }
 
-    pub(crate) fn on_transport_connected(&mut self) -> Result<()> {
+    pub fn on_transport_connected(&mut self) -> Result<()> {
         self.driver.on_transport_connected()
     }
 
-    pub(crate) fn on_transport_closed(&mut self) -> Result<()> {
+    pub fn on_transport_closed(&mut self) -> Result<()> {
         self.driver.on_transport_closed()
     }
 
-    pub(crate) fn on_stream_opened(
-        &mut self,
-        stream_id: u32,
-        bidi: bool,
-        local: bool,
-    ) -> Result<()> {
+    pub fn on_stream_opened(&mut self, stream_id: u32, bidi: bool, local: bool) -> Result<()> {
         self.driver.on_stream_opened(stream_id, bidi, local)
     }
 
-    pub(crate) fn on_stream_closed(&mut self, stream_id: u32) -> Result<()> {
+    pub fn on_stream_closed(&mut self, stream_id: u32) -> Result<()> {
         self.driver.on_stream_closed(stream_id)
     }
 
-    pub(crate) fn on_stream_data(&mut self, stream_id: u32, data: Bytes, fin: bool) -> Result<()> {
+    pub fn on_stream_data(&mut self, stream_id: u32, data: Bytes, fin: bool) -> Result<()> {
         self.driver.on_stream_data(stream_id, data, fin)
     }
 
-    pub(crate) fn on_datagram(&mut self, bytes: Bytes) -> Result<()> {
+    pub fn on_datagram(&mut self, bytes: Bytes) -> Result<()> {
         self.driver.on_datagram(bytes)
     }
 
-    pub(crate) fn handle_command(&mut self, command: Command) -> Result<()> {
+    pub fn handle_command(&mut self, command: Command) -> Result<()> {
         self.driver.handle_command(command)
     }
 
-    pub(crate) fn poll_read(&mut self) -> Option<ReadOutput> {
+    pub fn poll_read(&mut self) -> Option<ReadOutput> {
         self.driver.poll_read()
     }
 
-    pub(crate) fn poll_event(&mut self) -> Option<EventOut> {
+    pub fn poll_event(&mut self) -> Option<EventOut> {
         self.driver.poll_event()
     }
 
-    pub(crate) fn handle_timeout(&mut self, now: Instant) -> Result<()> {
+    pub fn handle_timeout(&mut self, now: Instant) -> Result<()> {
         self.driver.handle_timeout(now)
     }
 
-    pub(crate) fn poll_timeout(&mut self) -> Option<Instant> {
+    pub fn poll_timeout(&mut self) -> Option<Instant> {
         self.driver.poll_timeout()
     }
 }
