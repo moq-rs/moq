@@ -1135,3 +1135,28 @@ fn public_wire_helpers_round_trip_subscribe_update_without_auth() -> moqt::Resul
 
     Ok(())
 }
+
+#[test]
+fn public_wire_helpers_round_trip_announce_without_auth() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::Announce(Announce {
+            track_namespace: "live".to_string(),
+            authorization_info: None,
+        }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ControlMessage(ControlMessage::Announce(announce))) => {
+            assert_eq!(announce.track_namespace, "live".to_string());
+            assert_eq!(announce.authorization_info, None);
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
