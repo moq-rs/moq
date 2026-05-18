@@ -280,11 +280,11 @@ pub enum WriteOutput {
     },
 }
 
-/// New SANS-I/O session core skeleton.
+/// SANS-I/O MoQT session state machine.
 ///
-/// This sits alongside the older `Handler`-based session code while the rewrite
-/// is in progress. It currently covers only the earliest lifecycle needed to
-/// bootstrap a client control stream and emit `CLIENT_SETUP`.
+/// `SessionCore` owns protocol state and emits transport actions via
+/// [`WriteOutput`]. It is transport-agnostic and is intended to sit below a
+/// thin adapter such as [`crate::SessionDriver`].
 pub struct SessionCore {
     config: Config,
     state: SessionState,

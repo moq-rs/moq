@@ -31,6 +31,7 @@ impl From<config::Config> for protocol::Config {
     }
 }
 
+/// Convenience wrapper that binds [`SessionDriver`] to the crate's `Connection`.
 pub struct Session {
     driver: SessionDriver<Connection>,
 }

@@ -8,6 +8,7 @@ use sansio::Protocol;
 use std::collections::VecDeque;
 use std::time::Instant;
 
+/// Minimal transport surface needed to drive a [`SessionCore`].
 pub trait SessionTransport {
     fn open_bi_stream(&mut self, purpose: StreamPurpose) -> Result<StreamId>;
     fn send_stream(&mut self, stream_id: StreamId, bytes: BytesMut, fin: bool) -> Result<()>;
@@ -35,6 +36,7 @@ impl SessionTransport for Connection {
     }
 }
 
+/// Adapter that connects [`SessionCore`] to a concrete transport.
 pub struct SessionDriver<T> {
     protocol: SessionCore,
     transport: T,
