@@ -255,6 +255,51 @@ fn test_datagram() -> Result<()> {
 }
 
 #[test]
+fn test_fetch_stream_second_object_omits_repeated_fields() -> Result<()> {
+    let first = ObjectHeader {
+        subscribe_id: 7,
+        track_alias: 7,
+        group_id: 5,
+        object_id: 9,
+        object_send_order: 4,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Track,
+        object_payload_length: Some(3),
+    };
+    let second = ObjectHeader {
+        subscribe_id: 7,
+        track_alias: 7,
+        group_id: 5,
+        object_id: 10,
+        object_send_order: 4,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Track,
+        object_payload_length: Some(3),
+    };
+
+    let mut buffer = vec![];
+    let first_size =
+        MessageFramer::serialize_fetch_object_with_previous(first, None, Bytes::from_static(b"one"), &mut buffer)?;
+    let second_size = MessageFramer::serialize_fetch_object_with_previous(
+        second,
+        Some(first),
+        Bytes::from_static(b"two"),
+        &mut buffer,
+    )?;
+
+    assert_eq!(first_size + second_size, buffer.len());
+    // First object: stream type + request id + flags + group + object + priority + len + payload.
+    assert_eq!(buffer[0], 0x05);
+    assert_eq!(buffer[1], 0x07);
+    assert_eq!(&buffer[2..4], &[0x40, 0x5c]);
+    // Second object: only flags + length + payload because group/object/priority are inferred.
+    assert_eq!(&buffer[first_size..first_size + 2], &[0x40, 0x40]);
+    assert_eq!(buffer[first_size + 2], 0x03);
+    assert_eq!(&buffer[first_size + 3..], b"two");
+    Ok(())
+}
+
+#[test]
 fn test_all_subscribe_inputs() -> Result<()> {
     for start_group in [None, Some(4)] {
         for start_object in [None, Some(0)] {

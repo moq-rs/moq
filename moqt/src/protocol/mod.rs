@@ -2435,6 +2435,124 @@ mod test {
     }
 
     #[test]
+    fn client_buffers_multiple_fetch_objects_until_fetch_ok() -> Result<()> {
+        let mut protocol = SessionCore::new(client_config(false));
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: {
+                let mut bytes = BytesMut::new();
+                let _ = MessageFramer::serialize_control_message(
+                    ControlMessage::ServerSetup(ServerSetup {
+                        supported_version: Version::Draft04,
+                        role: Some(Role::PubSub),
+                    }),
+                    &mut bytes,
+                )?;
+                bytes.freeze()
+            },
+            fin: false,
+        })?;
+        let _ = protocol.poll_event();
+
+        protocol.handle_write(Command::Fetch {
+            target: FetchTarget::Standalone(crate::message::fetch::StandaloneFetch {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                start: FullSequence::new(0, 0),
+                end: FullSequence::new(1, 0),
+            }),
+            authorization_info: None,
+        })?;
+        let _ = protocol.poll_write();
+
+        let first = ObjectHeader {
+            subscribe_id: 0,
+            track_alias: 0,
+            group_id: 1,
+            object_id: 0,
+            object_send_order: 0,
+            object_status: ObjectStatus::Normal,
+            object_forwarding_preference: ObjectForwardingPreference::Track,
+            object_payload_length: Some(3),
+        };
+        let second = ObjectHeader {
+            subscribe_id: 0,
+            track_alias: 0,
+            group_id: 1,
+            object_id: 1,
+            object_send_order: 0,
+            object_status: ObjectStatus::Normal,
+            object_forwarding_preference: ObjectForwardingPreference::Track,
+            object_payload_length: Some(3),
+        };
+        let mut object_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_fetch_object_with_previous(
+            first,
+            None,
+            Bytes::from_static(b"abc"),
+            &mut object_bytes,
+        )?;
+        let _ = MessageFramer::serialize_fetch_object_with_previous(
+            second,
+            Some(first),
+            Bytes::from_static(b"def"),
+            &mut object_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 22,
+            data: object_bytes.freeze(),
+            fin: true,
+        })?;
+        assert_eq!(protocol.poll_event(), None);
+
+        let mut fetch_ok_bytes = BytesMut::new();
+        let _ = MessageFramer::serialize_control_message(
+            ControlMessage::FetchOk(FetchOk {
+                request_id: 0,
+                end_of_track: false,
+                end_location: FullSequence::new(1, 1),
+            }),
+            &mut fetch_ok_bytes,
+        )?;
+        protocol.handle_read(ReadInput::StreamData {
+            stream_id: 20,
+            data: fetch_ok_bytes.freeze(),
+            fin: true,
+        })?;
+
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::FetchAccepted {
+                request_id: 0,
+                end_of_track: false,
+                end_location: FullSequence::new(1, 1),
+            })
+        );
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::ObjectReceived {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                fragment: RemoteTrackOnObjectFragment {
+                    object_header: first,
+                    payload: Bytes::from_static(b"abc"),
+                    fin: true,
+                },
+            })
+        );
+        assert_eq!(
+            protocol.poll_event(),
+            Some(EventOut::ObjectReceived {
+                full_track_name: FullTrackName::new("foo".to_string(), "bar".to_string()),
+                fragment: RemoteTrackOnObjectFragment {
+                    object_header: second,
+                    payload: Bytes::from_static(b"def"),
+                    fin: true,
+                },
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
     fn server_sends_odd_fetch_request_ids() -> Result<()> {
         let mut protocol = SessionCore::new(server_config(false));
         protocol.handle_read(ReadInput::StreamData {

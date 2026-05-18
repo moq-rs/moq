@@ -162,6 +162,24 @@ impl MessageFramer {
         payload: Bytes,
         w: &mut W,
     ) -> Result<usize> {
+        Self::serialize_fetch_object_with_previous(
+            object_header,
+            if is_first_in_stream {
+                None
+            } else {
+                Some(object_header)
+            },
+            payload,
+            w,
+        )
+    }
+
+    pub fn serialize_fetch_object_with_previous<W: BufMut>(
+        object_header: ObjectHeader,
+        previous_object: Option<ObjectHeader>,
+        payload: Bytes,
+        w: &mut W,
+    ) -> Result<usize> {
         if object_header.object_status != ObjectStatus::Normal {
             return Err(Error::ErrInvalidObjectType(
                 "fetch stream objects only support normal status".to_string(),
@@ -174,19 +192,38 @@ impl MessageFramer {
         }
 
         let mut tl = 0;
-        if is_first_in_stream {
+        if previous_object.is_none() {
             tl += FETCH_STREAM_TYPE.serialize(w)?;
             tl += object_header.subscribe_id.serialize(w)?;
         }
-        let flags = FETCH_IS_DATAGRAM_LIKE | FETCH_HAS_GROUP_ID | FETCH_HAS_OBJECT_ID | FETCH_HAS_PRIORITY;
-        tl += flags.serialize(w)?;
-        tl += object_header.group_id.serialize(w)?;
-        tl += object_header.object_id.serialize(w)?;
-        if w.remaining_mut() < 1 {
-            return Err(Error::ErrBufferTooShort);
+        let mut flags = FETCH_IS_DATAGRAM_LIKE;
+        if let Some(previous_object) = previous_object {
+            if object_header.group_id != previous_object.group_id {
+                flags |= FETCH_HAS_GROUP_ID;
+            }
+            if object_header.object_id != previous_object.object_id + 1 {
+                flags |= FETCH_HAS_OBJECT_ID;
+            }
+            if object_header.object_send_order != previous_object.object_send_order {
+                flags |= FETCH_HAS_PRIORITY;
+            }
+        } else {
+            flags |= FETCH_HAS_GROUP_ID | FETCH_HAS_OBJECT_ID | FETCH_HAS_PRIORITY;
         }
-        w.put_u8(object_header.object_send_order as u8);
-        tl += 1;
+        tl += flags.serialize(w)?;
+        if (flags & FETCH_HAS_GROUP_ID) != 0 {
+            tl += object_header.group_id.serialize(w)?;
+        }
+        if (flags & FETCH_HAS_OBJECT_ID) != 0 {
+            tl += object_header.object_id.serialize(w)?;
+        }
+        if (flags & FETCH_HAS_PRIORITY) != 0 {
+            if w.remaining_mut() < 1 {
+                return Err(Error::ErrBufferTooShort);
+            }
+            w.put_u8(object_header.object_send_order as u8);
+            tl += 1;
+        }
         tl += (payload.len() as u64).serialize(w)?;
         tl += payload.serialize(w)?;
         Ok(tl)
