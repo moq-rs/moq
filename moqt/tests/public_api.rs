@@ -5,8 +5,8 @@ use moqt::{
     ObjectForwardingPreference, ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective,
     RemoteTrackOnObjectFragment, Role, ServerSetup, Session, SessionConfig, SessionCore,
     SessionDriver, SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe,
-    SubscribeDone, SubscribeError, SubscribeOk, TrackStatus, TrackStatusRequest, Version,
-    WriteOutput,
+    SubscribeDone, SubscribeError, SubscribeOk, TrackStatus, TrackStatusRequest, UnSubscribe,
+    Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -580,6 +580,56 @@ fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
     assert_eq!(
         session.poll_event(),
         Some(EventOut::SubscribeReceived(subscribe))
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_server_receives_unsubscribe() -> moqt::Result<()> {
+    let mut session = Session::new(server_session_config(), Connection::QUIC);
+
+    session.handle_command(Command::RegisterLocalTrack {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        forwarding_preference: ObjectForwardingPreference::Datagram,
+        next_sequence: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::Subscribe(Subscribe {
+            subscribe_id: 7,
+            track_alias: 9,
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+            authorization_info: None,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::UnSubscribe(UnSubscribe { subscribe_id: 7 }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::UnsubscribeReceived { subscribe_id: 7 })
     );
     Ok(())
 }
