@@ -2,9 +2,9 @@ use bytes::{Bytes, BytesMut};
 use moqt::{
     ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType, FullSequence,
     FullTrackName, MessageFramer, MessageParser, MessageParserEvent, ObjectForwardingPreference,
-    ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective, Role, ServerSetup, Session,
-    SessionConfig, SessionCore, SessionDriver, SessionPerspective, SessionTransport, StreamId,
-    StreamPurpose, Subscribe, SubscribeOk, Version, WriteOutput,
+    ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective, RemoteTrackOnObjectFragment,
+    Role, ServerSetup, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
+    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeOk, Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -370,6 +370,72 @@ fn public_session_external_server_receives_subscribe() -> moqt::Result<()> {
     assert_eq!(
         session.poll_event(),
         Some(EventOut::SubscribeReceived(subscribe))
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_receives_object_datagram() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: None,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    let object_header = ObjectHeader {
+        subscribe_id: 0,
+        track_alias: 0,
+        group_id: 3,
+        object_id: 4,
+        object_send_order: 0,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Datagram,
+        object_payload_length: None,
+    };
+    let mut datagram = BytesMut::new();
+    MessageFramer::serialize_object_datagram(
+        object_header,
+        Bytes::from_static(b"xyz"),
+        &mut datagram,
+    )?;
+
+    session.on_datagram(datagram.freeze())?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::ObjectReceived {
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            fragment: RemoteTrackOnObjectFragment {
+                object_header,
+                payload: Bytes::from_static(b"xyz"),
+                fin: true,
+            },
+        })
     );
     Ok(())
 }
