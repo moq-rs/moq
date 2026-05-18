@@ -269,6 +269,29 @@ fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_protocol_close_to_transport() -> moqt::Result<()> {
+    let transport = FakeTransport::new(1);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_stream_data(
+        3,
+        encode_control(ControlMessage::SubscribeDone(SubscribeDone {
+            subscribe_id: 77,
+            status_code: 0,
+            reason_phrase: "done".to_string(),
+            final_group_object: None,
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.transport().closes,
+        vec![(1, "received SUBSCRIBE_DONE before session setup".to_string())]
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_wrapper_smoke_test() -> moqt::Result<()> {
     let mut session = Session::new(client_session_config(), Connection::QUIC);
 
