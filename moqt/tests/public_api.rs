@@ -1,11 +1,12 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
     Announce, AnnounceCancel, AnnounceError, AnnounceOk, ClientSetup, Command, Connection,
-    ControlMessage, EventIn, EventOut, FilterType, FullSequence, FullTrackName, GoAway,
-    MessageFramer, MessageParser, MessageParserEvent, ObjectForwardingPreference, ObjectHeader,
-    ObjectStatus, ProtocolConfig, ProtocolPerspective, RemoteTrackOnObjectFragment, Role,
-    ServerSetup, Session, SessionConfig, SessionCore, SessionDriver, SessionPerspective,
-    SessionTransport, StreamId, StreamPurpose, Subscribe, SubscribeDone, SubscribeError,
+    ControlMessage, EventIn, EventOut, Fetch, FetchCancel, FetchOk, FetchTarget, FilterType,
+    FullSequence, FullTrackName, GoAway, MaxRequestId, MessageFramer, MessageParser,
+    MessageParserEvent, ObjectForwardingPreference, ObjectHeader, ObjectStatus, ProtocolConfig,
+    ProtocolPerspective, RemoteTrackOnObjectFragment, RequestsBlocked, Role, ServerSetup, Session,
+    SessionConfig, SessionCore, SessionDriver, SessionPerspective, SessionTransport,
+    StandaloneFetch, StreamId, StreamPurpose, Subscribe, SubscribeDone, SubscribeError,
     SubscribeOk, SubscribeUpdate, TrackStatus, TrackStatusRequest, UnAnnounce, UnSubscribe,
     Version, WriteOutput,
 };
@@ -1979,6 +1980,112 @@ fn public_wire_helpers_round_trip_subscribe_without_auth() -> moqt::Result<()> {
         }
         other => panic!("unexpected parser event: {other:?}"),
     }
+
+    Ok(())
+}
+
+#[test]
+fn public_wire_helpers_round_trip_fetch_without_auth() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::Fetch(Fetch {
+            request_id: 7,
+            target: FetchTarget::Standalone(StandaloneFetch {
+                full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+                start: FullSequence::new(3, 1),
+                end: FullSequence::new(5, 9),
+            }),
+            authorization_info: None,
+        }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ControlMessage(ControlMessage::Fetch(fetch))) => {
+            assert_eq!(fetch.request_id, 7);
+            assert_eq!(
+                fetch.target,
+                FetchTarget::Standalone(StandaloneFetch {
+                    full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+                    start: FullSequence::new(3, 1),
+                    end: FullSequence::new(5, 9),
+                })
+            );
+            assert_eq!(fetch.authorization_info, None);
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn public_wire_helpers_round_trip_fetch_ok() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::FetchOk(FetchOk {
+            request_id: 7,
+            end_of_track: true,
+            end_location: FullSequence::new(5, 9),
+        }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ControlMessage(ControlMessage::FetchOk(fetch_ok))) => {
+            assert_eq!(fetch_ok.request_id, 7);
+            assert!(fetch_ok.end_of_track);
+            assert_eq!(fetch_ok.end_location, FullSequence::new(5, 9));
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn public_wire_helpers_round_trip_fetch_window_messages() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 17 }),
+        &mut bytes,
+    )?;
+    MessageFramer::serialize_control_message(
+        ControlMessage::FetchCancel(FetchCancel { request_id: 7 }),
+        &mut bytes,
+    )?;
+    MessageFramer::serialize_control_message(
+        ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 23 }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    assert_eq!(
+        parser.poll_event(),
+        Some(MessageParserEvent::ControlMessage(
+            ControlMessage::MaxRequestId(MaxRequestId { max_request_id: 17 })
+        ))
+    );
+    assert_eq!(
+        parser.poll_event(),
+        Some(MessageParserEvent::ControlMessage(
+            ControlMessage::FetchCancel(FetchCancel { request_id: 7 })
+        ))
+    );
+    assert_eq!(
+        parser.poll_event(),
+        Some(MessageParserEvent::ControlMessage(
+            ControlMessage::RequestsBlocked(RequestsBlocked { max_request_id: 23 })
+        ))
+    );
 
     Ok(())
 }

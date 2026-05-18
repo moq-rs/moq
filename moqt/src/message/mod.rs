@@ -3,9 +3,14 @@ use crate::message::announce_cancel::AnnounceCancel;
 use crate::message::announce_error::AnnounceError;
 use crate::message::announce_ok::AnnounceOk;
 use crate::message::client_setup::ClientSetup;
+use crate::message::fetch::Fetch;
+use crate::message::fetch_cancel::FetchCancel;
+use crate::message::fetch_ok::FetchOk;
 use crate::message::go_away::GoAway;
+use crate::message::max_request_id::MaxRequestId;
 use crate::message::message_parser::ErrorCode;
 use crate::message::object::ObjectForwardingPreference;
+use crate::message::requests_blocked::RequestsBlocked;
 use crate::message::server_setup::ServerSetup;
 use crate::message::subscribe::Subscribe;
 use crate::message::subscribe_done::SubscribeDone;
@@ -24,10 +29,15 @@ pub mod announce_cancel;
 pub mod announce_error;
 pub mod announce_ok;
 pub mod client_setup;
+pub mod fetch;
+pub mod fetch_cancel;
+pub mod fetch_ok;
 pub mod go_away;
+pub mod max_request_id;
 pub mod message_framer;
 pub mod message_parser;
 pub mod object;
+pub mod requests_blocked;
 pub mod server_setup;
 pub mod subscribe;
 pub mod subscribe_done;
@@ -70,6 +80,11 @@ pub enum MessageType {
     TrackStatusRequest = 0xd,
     TrackStatus = 0xe,
     GoAway = 0x10,
+    MaxRequestId = 0x15,
+    Fetch = 0x16,
+    FetchCancel = 0x17,
+    FetchOk = 0x18,
+    RequestsBlocked = 0x1a,
     ClientSetup = 0x40,
     ServerSetup = 0x41,
     StreamHeaderTrack = 0x50,
@@ -120,6 +135,11 @@ impl TryFrom<u64> for MessageType {
             0xd => Ok(MessageType::TrackStatusRequest),
             0xe => Ok(MessageType::TrackStatus),
             0x10 => Ok(MessageType::GoAway),
+            0x15 => Ok(MessageType::MaxRequestId),
+            0x16 => Ok(MessageType::Fetch),
+            0x17 => Ok(MessageType::FetchCancel),
+            0x18 => Ok(MessageType::FetchOk),
+            0x1a => Ok(MessageType::RequestsBlocked),
             0x40 => Ok(MessageType::ClientSetup),
             0x41 => Ok(MessageType::ServerSetup),
             0x50 => Ok(MessageType::StreamHeaderTrack),
@@ -417,6 +437,11 @@ pub enum ControlMessage {
     TrackStatusRequest(TrackStatusRequest),
     TrackStatus(TrackStatus),
     GoAway(GoAway),
+    MaxRequestId(MaxRequestId),
+    Fetch(Fetch),
+    FetchCancel(FetchCancel),
+    FetchOk(FetchOk),
+    RequestsBlocked(RequestsBlocked),
     ClientSetup(ClientSetup),
     ServerSetup(ServerSetup),
 }
@@ -484,6 +509,26 @@ impl Deserializer for ControlMessage {
             MessageType::GoAway => {
                 let (m, ml) = GoAway::deserialize(r)?;
                 Ok((ControlMessage::GoAway(m), mtl + ml))
+            }
+            MessageType::MaxRequestId => {
+                let (m, ml) = MaxRequestId::deserialize(r)?;
+                Ok((ControlMessage::MaxRequestId(m), mtl + ml))
+            }
+            MessageType::Fetch => {
+                let (m, ml) = Fetch::deserialize(r)?;
+                Ok((ControlMessage::Fetch(m), mtl + ml))
+            }
+            MessageType::FetchCancel => {
+                let (m, ml) = FetchCancel::deserialize(r)?;
+                Ok((ControlMessage::FetchCancel(m), mtl + ml))
+            }
+            MessageType::FetchOk => {
+                let (m, ml) = FetchOk::deserialize(r)?;
+                Ok((ControlMessage::FetchOk(m), mtl + ml))
+            }
+            MessageType::RequestsBlocked => {
+                let (m, ml) = RequestsBlocked::deserialize(r)?;
+                Ok((ControlMessage::RequestsBlocked(m), mtl + ml))
             }
             MessageType::ClientSetup => {
                 let (m, ml) = ClientSetup::deserialize(r)?;
@@ -568,6 +613,31 @@ impl Serializer for ControlMessage {
             ControlMessage::GoAway(go_away) => {
                 let mut l = MessageType::GoAway.serialize(w)?;
                 l += go_away.serialize(w)?;
+                Ok(l)
+            }
+            ControlMessage::MaxRequestId(max_request_id) => {
+                let mut l = MessageType::MaxRequestId.serialize(w)?;
+                l += max_request_id.serialize(w)?;
+                Ok(l)
+            }
+            ControlMessage::Fetch(fetch) => {
+                let mut l = MessageType::Fetch.serialize(w)?;
+                l += fetch.serialize(w)?;
+                Ok(l)
+            }
+            ControlMessage::FetchCancel(fetch_cancel) => {
+                let mut l = MessageType::FetchCancel.serialize(w)?;
+                l += fetch_cancel.serialize(w)?;
+                Ok(l)
+            }
+            ControlMessage::FetchOk(fetch_ok) => {
+                let mut l = MessageType::FetchOk.serialize(w)?;
+                l += fetch_ok.serialize(w)?;
+                Ok(l)
+            }
+            ControlMessage::RequestsBlocked(requests_blocked) => {
+                let mut l = MessageType::RequestsBlocked.serialize(w)?;
+                l += requests_blocked.serialize(w)?;
                 Ok(l)
             }
             ControlMessage::ClientSetup(client_setup) => {

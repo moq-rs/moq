@@ -169,6 +169,11 @@ pub(crate) fn create_test_message(
         MessageType::TrackStatusRequest => Box::new(TestTrackStatusRequestMessage::new()),
         MessageType::TrackStatus => Box::new(TestTrackStatusMessage::new()),
         MessageType::GoAway => Box::new(TestGoAwayMessage::new()),
+        MessageType::MaxRequestId
+        | MessageType::Fetch
+        | MessageType::FetchCancel
+        | MessageType::FetchOk
+        | MessageType::RequestsBlocked => unreachable!("new fetch family has dedicated tests"),
         MessageType::ClientSetup => Box::new(TestClientSetupMessage::new(uses_web_transport)),
         MessageType::ServerSetup => Box::new(TestServerSetupMessage::new()),
         MessageType::StreamHeaderTrack => Box::new(TestStreamHeaderTrackMessage::new()),

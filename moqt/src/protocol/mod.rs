@@ -1023,6 +1023,15 @@ impl SessionCore {
                     new_session_uri: go_away.new_session_uri,
                 });
             }
+            ControlMessage::MaxRequestId(_)
+            | ControlMessage::Fetch(_)
+            | ControlMessage::FetchCancel(_)
+            | ControlMessage::FetchOk(_)
+            | ControlMessage::RequestsBlocked(_) => {
+                self.close_with_protocol_violation(
+                    "received unsupported draft16 request/fetch message",
+                );
+            }
         }
         Ok(())
     }
