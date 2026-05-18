@@ -1,12 +1,12 @@
 use bytes::{Bytes, BytesMut};
 use moqt::{
-    ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType, FullSequence,
-    FullTrackName, GoAway, MessageFramer, MessageParser, MessageParserEvent,
+    Announce, ClientSetup, Command, Connection, ControlMessage, EventIn, EventOut, FilterType,
+    FullSequence, FullTrackName, GoAway, MessageFramer, MessageParser, MessageParserEvent,
     ObjectForwardingPreference, ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective,
     RemoteTrackOnObjectFragment, Role, ServerSetup, Session, SessionConfig, SessionCore,
     SessionDriver, SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe,
-    SubscribeDone, SubscribeError, SubscribeOk, TrackStatus, TrackStatusRequest, UnSubscribe,
-    Version, WriteOutput,
+    SubscribeDone, SubscribeError, SubscribeOk, TrackStatus, TrackStatusRequest, UnAnnounce,
+    UnSubscribe, Version, WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -630,6 +630,53 @@ fn public_session_external_server_receives_unsubscribe() -> moqt::Result<()> {
     assert_eq!(
         session.poll_event(),
         Some(EventOut::UnsubscribeReceived { subscribe_id: 7 })
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_server_receives_unannounce() -> moqt::Result<()> {
+    let mut session = Session::new(server_session_config(), Connection::QUIC);
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::Announce(Announce {
+            track_namespace: "live".to_string(),
+            authorization_info: None,
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.handle_command(Command::AnnounceOk {
+        track_namespace: "live".to_string(),
+    })?;
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::UnAnnounce(UnAnnounce {
+            track_namespace: "live".to_string(),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::UnannounceReceived {
+            track_namespace: "live".to_string(),
+        })
     );
     Ok(())
 }
