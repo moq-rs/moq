@@ -153,6 +153,31 @@ fn public_session_driver_smoke_test() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_session_established() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::SessionEstablished {
+            peer_role: Some(Role::PubSub),
+            path: None,
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_surfaces_incoming_subscribe() -> moqt::Result<()> {
     let transport = FakeTransport::new(10);
     let mut driver = SessionDriver::new(server_protocol_config(), transport);
@@ -286,7 +311,10 @@ fn public_session_driver_surfaces_protocol_close_to_transport() -> moqt::Result<
 
     assert_eq!(
         driver.transport().closes,
-        vec![(1, "received SUBSCRIBE_DONE before session setup".to_string())]
+        vec![(
+            1,
+            "received SUBSCRIBE_DONE before session setup".to_string()
+        )]
     );
     Ok(())
 }
@@ -754,7 +782,10 @@ fn public_session_external_server_receives_announce() -> moqt::Result<()> {
         false,
     )?;
 
-    assert_eq!(session.poll_event(), Some(EventOut::AnnounceReceived(announce)));
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::AnnounceReceived(announce))
+    );
     Ok(())
 }
 
@@ -907,7 +938,10 @@ fn public_session_external_server_receives_subscribe_update() -> moqt::Result<()
         false,
     )?;
 
-    assert_eq!(session.poll_event(), Some(EventOut::SubscribeUpdated(update)));
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::SubscribeUpdated(update))
+    );
     Ok(())
 }
 
