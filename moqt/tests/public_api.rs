@@ -1160,3 +1160,39 @@ fn public_wire_helpers_round_trip_announce_without_auth() -> moqt::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn public_wire_helpers_round_trip_subscribe_without_auth() -> moqt::Result<()> {
+    let mut bytes = BytesMut::new();
+    MessageFramer::serialize_control_message(
+        ControlMessage::Subscribe(Subscribe {
+            subscribe_id: 7,
+            track_alias: 9,
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence::new(3, 1)),
+            authorization_info: None,
+        }),
+        &mut bytes,
+    )?;
+
+    let mut parser = MessageParser::new(false);
+    parser.process_data(&mut bytes.freeze().as_ref(), false);
+
+    match parser.poll_event() {
+        Some(MessageParserEvent::ControlMessage(ControlMessage::Subscribe(subscribe))) => {
+            assert_eq!(subscribe.subscribe_id, 7);
+            assert_eq!(subscribe.track_alias, 9);
+            assert_eq!(subscribe.track_namespace, "live".to_string());
+            assert_eq!(subscribe.track_name, "camera".to_string());
+            assert_eq!(
+                subscribe.filter_type,
+                FilterType::AbsoluteStart(FullSequence::new(3, 1))
+            );
+            assert_eq!(subscribe.authorization_info, None);
+        }
+        other => panic!("unexpected parser event: {other:?}"),
+    }
+
+    Ok(())
+}
