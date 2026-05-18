@@ -190,6 +190,82 @@ fn public_session_driver_surfaces_incoming_subscribe() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
+    let transport = FakeTransport::new(10);
+    let mut driver = SessionDriver::new(server_protocol_config(), transport);
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = driver.transport_mut().sent_streams.pop();
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::RegisterLocalTrack {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        forwarding_preference: ObjectForwardingPreference::Datagram,
+        next_sequence: None,
+    })?;
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::Subscribe(Subscribe {
+            subscribe_id: 7,
+            track_alias: 9,
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+            filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+            authorization_info: None,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::SubscribeOk {
+        subscribe_id: 7,
+        expires: 60,
+        largest_group_object: None,
+    })?;
+    let _ = driver.transport_mut().sent_streams.pop();
+
+    driver.handle_command(Command::PublishObject {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        group_id: 1,
+        object_id: 2,
+        send_order: 3,
+        status: ObjectStatus::Normal,
+        payload: Bytes::from_static(b"frame"),
+    })?;
+
+    assert!(driver.transport().opened_streams.is_empty());
+    assert_eq!(driver.transport().sent_datagrams.len(), 1);
+
+    let (header, payload) =
+        MessageParser::process_datagram(&mut driver.transport().sent_datagrams[0].as_ref())?;
+    assert_eq!(header.subscribe_id, 7);
+    assert_eq!(header.track_alias, 9);
+    assert_eq!(header.group_id, 1);
+    assert_eq!(header.object_id, 2);
+    assert_eq!(header.object_send_order, 3);
+    assert_eq!(header.object_status, ObjectStatus::Normal);
+    assert_eq!(
+        header.object_forwarding_preference,
+        ObjectForwardingPreference::Datagram
+    );
+    assert_eq!(payload, Bytes::from_static(b"frame"));
+
+    Ok(())
+}
+
+#[test]
 fn public_session_wrapper_smoke_test() -> moqt::Result<()> {
     let mut session = Session::new(client_session_config(), Connection::QUIC);
 
