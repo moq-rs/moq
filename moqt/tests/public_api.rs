@@ -61,6 +61,16 @@ fn client_protocol_config() -> ProtocolConfig {
     }
 }
 
+fn server_protocol_config() -> ProtocolConfig {
+    ProtocolConfig {
+        version: Version::Draft04,
+        perspective: ProtocolPerspective::Server,
+        use_web_transport: false,
+        path: "/moq".to_string(),
+        deliver_partial_objects: false,
+    }
+}
+
 fn client_session_config() -> SessionConfig {
     SessionConfig {
         version: Version::Draft04,
@@ -135,6 +145,46 @@ fn public_session_driver_smoke_test() -> moqt::Result<()> {
     assert_eq!(driver.transport().sent_streams.len(), 1);
     assert!(driver.transport().sent_streams[0].1.len() > 0);
     assert!(driver.poll_event().is_none());
+
+    Ok(())
+}
+
+#[test]
+fn public_session_driver_surfaces_incoming_subscribe() -> moqt::Result<()> {
+    let transport = FakeTransport::new(10);
+    let mut driver = SessionDriver::new(server_protocol_config(), transport);
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::ClientSetup(ClientSetup {
+            supported_versions: vec![Version::Draft04],
+            role: Some(Role::PubSub),
+            path: Some("/moq".to_string()),
+            uses_web_transport: false,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    let subscribe = Subscribe {
+        subscribe_id: 7,
+        track_alias: 9,
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::AbsoluteStart(FullSequence::new(0, 0)),
+        authorization_info: None,
+    };
+
+    driver.on_stream_data(
+        0,
+        encode_control(ControlMessage::Subscribe(subscribe.clone()))?,
+        false,
+    )?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::SubscribeReceived(subscribe))
+    );
 
     Ok(())
 }
