@@ -305,6 +305,73 @@ fn public_session_driver_publishes_object_datagram() -> moqt::Result<()> {
 }
 
 #[test]
+fn public_session_driver_surfaces_incoming_object_datagram() -> moqt::Result<()> {
+    let transport = FakeTransport::new(11);
+    let mut driver = SessionDriver::new(client_protocol_config(), transport);
+
+    driver.on_transport_connected()?;
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    driver.handle_command(Command::Subscribe {
+        track_namespace: "live".to_string(),
+        track_name: "camera".to_string(),
+        filter_type: FilterType::LatestObject,
+        authorization_info: None,
+    })?;
+
+    driver.on_stream_data(
+        11,
+        encode_control(ControlMessage::SubscribeOk(SubscribeOk {
+            subscribe_id: 0,
+            expires: 30,
+            largest_group_object: None,
+        }))?,
+        false,
+    )?;
+    let _ = driver.poll_event();
+
+    let object_header = ObjectHeader {
+        subscribe_id: 0,
+        track_alias: 0,
+        group_id: 3,
+        object_id: 4,
+        object_send_order: 0,
+        object_status: ObjectStatus::Normal,
+        object_forwarding_preference: ObjectForwardingPreference::Datagram,
+        object_payload_length: None,
+    };
+    let mut datagram = BytesMut::new();
+    MessageFramer::serialize_object_datagram(
+        object_header,
+        Bytes::from_static(b"xyz"),
+        &mut datagram,
+    )?;
+
+    driver.on_datagram(datagram.freeze())?;
+
+    assert_eq!(
+        driver.poll_event(),
+        Some(EventOut::ObjectReceived {
+            full_track_name: FullTrackName::new("live".to_string(), "camera".to_string()),
+            fragment: RemoteTrackOnObjectFragment {
+                object_header,
+                payload: Bytes::from_static(b"xyz"),
+                fin: true,
+            },
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn public_session_driver_surfaces_protocol_close_to_transport() -> moqt::Result<()> {
     let transport = FakeTransport::new(1);
     let mut driver = SessionDriver::new(client_protocol_config(), transport);
