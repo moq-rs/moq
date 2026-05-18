@@ -5,7 +5,8 @@ use moqt::{
     ObjectForwardingPreference, ObjectHeader, ObjectStatus, ProtocolConfig, ProtocolPerspective,
     RemoteTrackOnObjectFragment, Role, ServerSetup, Session, SessionConfig, SessionCore,
     SessionDriver, SessionPerspective, SessionTransport, StreamId, StreamPurpose, Subscribe,
-    SubscribeDone, SubscribeError, SubscribeOk, TrackStatus, Version, WriteOutput,
+    SubscribeDone, SubscribeError, SubscribeOk, TrackStatus, TrackStatusRequest, Version,
+    WriteOutput,
 };
 use sansio::Protocol;
 use std::time::Instant;
@@ -500,6 +501,40 @@ fn public_session_external_track_status_round_trip() -> moqt::Result<()> {
             track_name: "camera".to_string(),
             status_code: 200,
             last_group_object: FullSequence::new(7, 2),
+        }))
+    );
+    Ok(())
+}
+
+#[test]
+fn public_session_external_track_status_request_round_trip() -> moqt::Result<()> {
+    let mut session = Session::new(client_session_config(), Connection::QUIC);
+
+    session.on_transport_connected()?;
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::ServerSetup(ServerSetup {
+            supported_version: Version::Draft04,
+            role: Some(Role::PubSub),
+        }))?,
+        false,
+    )?;
+    let _ = session.poll_event();
+
+    session.on_stream_data(
+        0,
+        encode_control(ControlMessage::TrackStatusRequest(TrackStatusRequest {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
+        }))?,
+        false,
+    )?;
+
+    assert_eq!(
+        session.poll_event(),
+        Some(EventOut::TrackStatusRequested(TrackStatusRequest {
+            track_namespace: "live".to_string(),
+            track_name: "camera".to_string(),
         }))
     );
     Ok(())
