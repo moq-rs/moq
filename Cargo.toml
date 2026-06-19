@@ -1,17 +1,20 @@
 [workspace]
 members = [
+    "moqp", # Publish
+    "moqr", # Relay
+    "moqs", # Subscribe
+    "moqt", # Transport
     "reserved/moqa", # Agent
     "reserved/moqb", # Broker
     "reserved/moqc", # Client
     "reserved/moqd", # Delegator
-    "reserved/moql", # LOC
+    "reserved/moqe", # Extension
+    "reserved/moqf", # Format
+    "reserved/moqg", # Geocode
+    "reserved/moql", # Lite/LOC
     "reserved/moqm", # Media
     "reserved/moqn", # Network
     "reserved/moqw", # WebAssembly
-    "moqp", # Publish
-    "moqr", # Relay
-    "moqs", # Subscribe
-    "moqt", "reserved/moqf", # Transport
 ]
 resolver = "2"
 

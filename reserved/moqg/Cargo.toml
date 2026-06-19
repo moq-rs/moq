@@ -1,0 +1,12 @@
+[package]
+name = "moqg"
+version = "0.0.0"
+authors = ["yngrtc <y@ngr.tc>"]
+edition = "2024"
+description = "Media over QUIC - Geocode"
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/moqg"
+homepage = "https://moq.rs"
+repository = "https://github.com/moq-rs/moq"
+
+[dependencies]
