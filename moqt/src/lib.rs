@@ -5,8 +5,8 @@ pub mod moqt_framer;
 pub mod moqt_messages;
 pub mod moqt_parser;
 pub mod moqt_priority;
+pub mod moqt_types;
 pub mod serde;
-pub mod types;
 
 #[cfg(test)]
 pub(crate) mod tests;

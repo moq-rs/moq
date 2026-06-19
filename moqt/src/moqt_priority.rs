@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::moqt_types::*;
 
 /// Priority that can be assigned to a track or individual streams associated
 /// with the track by either the publisher or the subscriber.
