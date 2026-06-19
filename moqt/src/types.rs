@@ -1,9 +1,10 @@
 #[allow(non_camel_case_types)]
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+#[repr(u8)]
 pub enum Perspective {
     #[default]
-    kClient,
-    kServer,
+    IS_SERVER,
+    IS_CLIENT,
 }
 
 /// A numeric ID uniquely identifying a WebTransport stream. Note that by design,

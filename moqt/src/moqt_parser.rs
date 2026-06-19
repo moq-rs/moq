@@ -202,7 +202,7 @@ impl MoqtControlParser {
             ));
         }
         let t = MoqtMessageType::try_from(value)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         let message_header_length = reader.bytes_read();
         let bytes_read = match t {
             MoqtMessageType::kClientSetup => self.process_client_setup(&mut reader)?,
@@ -247,7 +247,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "Message length does not match payload length",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         Ok(bytes_read)
     }
@@ -275,10 +275,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "ROLE parameter appears twice in SETUP",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let index = self.string_view_to_var_int(value.as_str())?;
                         setup.role = match MoqtRole::try_from(index) {
@@ -288,10 +285,7 @@ impl MoqtControlParser {
                                     MoqtError::kProtocolViolation,
                                     "Invalid ROLE parameter",
                                 );
-                                return Err(Error::new(
-                                    ErrorKind::Other,
-                                    MoqtError::kProtocolViolation,
-                                ));
+                                return Err(Error::other(MoqtError::kProtocolViolation));
                             }
                         };
                     }
@@ -301,20 +295,14 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "WebTransport connection is using PATH parameter in SETUP",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         if setup.path.is_some() {
                             self.parse_error(
                                 MoqtError::kProtocolViolation,
                                 "PATH parameter appears twice in CLIENT_SETUP",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         setup.path = Some(value);
                     }
@@ -324,10 +312,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "MAX_SUBSCRIBE_ID parameter appears twice in SETUP",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let max_id = match self.string_view_to_var_int(value.as_str()) {
                             Ok(max_id) => max_id,
@@ -336,10 +321,7 @@ impl MoqtControlParser {
                                     MoqtError::kProtocolViolation,
                                     "MAX_SUBSCRIBE_ID parameter is not a valid varint",
                                 );
-                                return Err(Error::new(
-                                    ErrorKind::Other,
-                                    MoqtError::kProtocolViolation,
-                                ));
+                                return Err(Error::other(MoqtError::kProtocolViolation));
                             }
                         };
                         setup.max_subscribe_id = Some(max_id);
@@ -351,10 +333,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "Invalid kSupportObjectAcks value",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         setup.supports_object_ack = flag == 1;
                     }
@@ -366,14 +345,14 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "ROLE parameter missing from CLIENT_SETUP message",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         if !self.uses_web_transport && setup.path.is_none() {
             self.parse_error(
                 MoqtError::kProtocolViolation,
                 "PATH SETUP parameter missing from Client message over QUIC",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         self.events
             .push_back(MoqtControlParserEvent::OnClientSetupMessage(setup));
@@ -397,10 +376,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "ROLE parameter appears twice in SETUP",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let index = self.string_view_to_var_int(value.as_str())?;
                         setup.role = match MoqtRole::try_from(index) {
@@ -410,10 +386,7 @@ impl MoqtControlParser {
                                     MoqtError::kProtocolViolation,
                                     "Invalid ROLE parameter",
                                 );
-                                return Err(Error::new(
-                                    ErrorKind::Other,
-                                    MoqtError::kProtocolViolation,
-                                ));
+                                return Err(Error::other(MoqtError::kProtocolViolation));
                             }
                         };
                     }
@@ -422,7 +395,7 @@ impl MoqtControlParser {
                             MoqtError::kProtocolViolation,
                             "PATH parameter in SERVER_SETUP",
                         );
-                        return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                        return Err(Error::other(MoqtError::kProtocolViolation));
                     }
                     MoqtSetupParameter::kMaxSubscribeId => {
                         if setup.max_subscribe_id.is_some() {
@@ -430,10 +403,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "MAX_SUBSCRIBE_ID parameter appears twice in SETUP",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let max_id = match self.string_view_to_var_int(value.as_str()) {
                             Ok(max_id) => max_id,
@@ -442,10 +412,7 @@ impl MoqtControlParser {
                                     MoqtError::kProtocolViolation,
                                     "MAX_SUBSCRIBE_ID parameter is not a valid varint",
                                 );
-                                return Err(Error::new(
-                                    ErrorKind::Other,
-                                    MoqtError::kProtocolViolation,
-                                ));
+                                return Err(Error::other(MoqtError::kProtocolViolation));
                             }
                         };
                         setup.max_subscribe_id = Some(max_id);
@@ -457,10 +424,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "Invalid kSupportObjectAcks value",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         setup.supports_object_ack = flag == 1;
                     }
@@ -472,7 +436,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "ROLE parameter missing from SERVER_SETUP message",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         self.events
             .push_back(MoqtControlParserEvent::OnServerSetupMessage(setup));
@@ -494,11 +458,11 @@ impl MoqtControlParser {
                     MoqtError::kProtocolViolation,
                     "Invalid group order value in SUBSCRIBE message",
                 );
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
         };
         let filter_type = MoqtFilterType::try_from(filter)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         let mut subscribe_request = MoqtSubscribe {
             subscribe_id,
             track_alias,
@@ -526,7 +490,7 @@ impl MoqtControlParser {
                             MoqtError::kProtocolViolation,
                             "End group is less than start group",
                         );
-                        return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                        return Err(Error::other(MoqtError::kProtocolViolation));
                     }
                     if end_object == 0 {
                         subscribe_request.end_object = None;
@@ -537,17 +501,14 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "End object comes before start object",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                     }
                 }
             }
             _ => {
                 self.parse_error(MoqtError::kProtocolViolation, "Invalid filter type");
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
         }
         subscribe_request.parameters = self.read_subscribe_parameters(reader)?;
@@ -567,7 +528,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "SUBSCRIBE_OK ContentExists has invalid value",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
 
         let expires = Duration::from_micros(milliseconds);
@@ -578,7 +539,7 @@ impl MoqtControlParser {
                     MoqtError::kProtocolViolation,
                     "Invalid group order value in SUBSCRIBE_OK",
                 );
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
         };
         let largest_id = if content_exists != 0 {
@@ -594,7 +555,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "SUBSCRIBE_OK has authorization info",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         self.events
             .push_back(MoqtControlParserEvent::OnSubscribeOkMessage(
@@ -614,7 +575,7 @@ impl MoqtControlParser {
         let reason_phrase = reader.read_string_var_int62()?;
         let track_alias = reader.read_var_int62()?;
         let error_code = SubscribeErrorCode::try_from(error_code)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         self.events
             .push_back(MoqtControlParserEvent::OnSubscribeErrorMessage(
                 MoqtSubscribeError {
@@ -640,13 +601,13 @@ impl MoqtControlParser {
         let reason_phrase = reader.read_string_var_int62()?;
         let content_exists = reader.read_uint8()?;
         let status_code = SubscribeDoneCode::try_from(value)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         if content_exists > 1 {
             self.parse_error(
                 MoqtError::kProtocolViolation,
                 "SUBSCRIBE_DONE ContentExists has invalid value",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         let final_id = if content_exists == 1 {
             let final_id_group = reader.read_var_int62()?;
@@ -681,7 +642,7 @@ impl MoqtControlParser {
                     MoqtError::kProtocolViolation,
                     "SUBSCRIBE_UPDATE has end_object but no end_group",
                 );
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
             None
         } else {
@@ -691,7 +652,7 @@ impl MoqtControlParser {
                     MoqtError::kProtocolViolation,
                     "End group is less than start group",
                 );
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
             Some(end_group)
         };
@@ -703,7 +664,7 @@ impl MoqtControlParser {
                     MoqtError::kProtocolViolation,
                     "End object comes before start object",
                 );
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
             Some(end_object)
         } else {
@@ -714,7 +675,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "SUBSCRIBE_UPDATE has authorization info",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         self.events
             .push_back(MoqtControlParserEvent::OnSubscribeUpdateMessage(
@@ -738,7 +699,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "ANNOUNCE has delivery timeout",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
         self.events
             .push_back(MoqtControlParserEvent::OnAnnounceMessage(MoqtAnnounce {
@@ -760,7 +721,7 @@ impl MoqtControlParser {
         let error_code = reader.read_var_int62()?;
         let reason_phrase = reader.read_string_var_int62()?;
         let error_code = MoqtAnnounceErrorCode::try_from(error_code)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         self.events
             .push_back(MoqtControlParserEvent::OnAnnounceErrorMessage(
                 MoqtAnnounceError {
@@ -776,7 +737,7 @@ impl MoqtControlParser {
         let error_code = reader.read_var_int62()?;
         let reason_phrase = reader.read_string_var_int62()?;
         let error_code = MoqtAnnounceErrorCode::try_from(error_code)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         self.events
             .push_back(MoqtControlParserEvent::OnAnnounceCancelMessage(
                 MoqtAnnounceCancel {
@@ -816,7 +777,7 @@ impl MoqtControlParser {
         let last_group = reader.read_var_int62()?;
         let last_object = reader.read_var_int62()?;
         let status_code = MoqtTrackStatusCode::try_from(value)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         self.events
             .push_back(MoqtControlParserEvent::OnTrackStatusMessage(
                 MoqtTrackStatus {
@@ -867,7 +828,7 @@ impl MoqtControlParser {
         let error_code = reader.read_var_int62()?;
         let reason_phrase = reader.read_string_var_int62()?;
         let error_code = SubscribeErrorCode::try_from(error_code)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         self.events
             .push_back(MoqtControlParserEvent::OnSubscribeAnnouncesErrorMessage(
                 MoqtSubscribeAnnouncesError {
@@ -926,7 +887,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "End object comes before start object in FETCH",
             );
-            return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+            return Err(Error::other(MoqtError::kProtocolViolation));
         }
 
         self.events
@@ -963,7 +924,7 @@ impl MoqtControlParser {
                     MoqtError::kProtocolViolation,
                     "Invalid group order value in FETCH_OK",
                 );
-                return Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation));
+                return Err(Error::other(MoqtError::kProtocolViolation));
             }
         };
         self.events
@@ -980,7 +941,7 @@ impl MoqtControlParser {
         let error_code = reader.read_var_int62()?;
         let reason_phrase = reader.read_string_var_int62()?;
         let error_code = SubscribeErrorCode::try_from(error_code)
-            .map_err(|_| Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))?;
+            .map_err(|_| Error::other(MoqtError::kProtocolViolation))?;
         self.events
             .push_back(MoqtControlParserEvent::OnFetchErrorMessage(
                 MoqtFetchError {
@@ -1031,7 +992,7 @@ impl MoqtControlParser {
                 MoqtError::kProtocolViolation,
                 "Parameter VarInt has length field mismatch",
             );
-            Err(Error::new(ErrorKind::Other, MoqtError::kProtocolViolation))
+            Err(Error::other(MoqtError::kProtocolViolation))
         } else {
             reader.read_var_int62()
         }
@@ -1065,10 +1026,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "AUTHORIZATION_INFO parameter appears twice",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         params.authorization_info = Some(value);
                     }
@@ -1078,10 +1036,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "DELIVERY_TIMEOUT parameter appears twice",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let raw_value = self.string_view_to_var_int(value.as_str())?;
                         params.delivery_timeout = Some(Duration::from_millis(raw_value));
@@ -1092,10 +1047,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "MAX_CACHE_DURATION parameter appears twice",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let raw_value = self.string_view_to_var_int(value.as_str())?;
                         params.max_cache_duration = Some(Duration::from_millis(raw_value));
@@ -1106,10 +1058,7 @@ impl MoqtControlParser {
                                 MoqtError::kProtocolViolation,
                                 "OACK_WINDOW_SIZE parameter appears twice in SUBSCRIBE",
                             );
-                            return Err(Error::new(
-                                ErrorKind::Other,
-                                MoqtError::kProtocolViolation,
-                            ));
+                            return Err(Error::other(MoqtError::kProtocolViolation));
                         }
                         let raw_value = self.string_view_to_var_int(value.as_str())?;
                         params.object_ack_window = Some(Duration::from_micros(raw_value));
@@ -1131,10 +1080,7 @@ impl MoqtControlParser {
                 MoqtError::kParameterLengthMismatch,
                 "Parameter length does not match varint encoding",
             );
-            Err(Error::new(
-                ErrorKind::Other,
-                MoqtError::kParameterLengthMismatch,
-            ))
+            Err(Error::other(MoqtError::kParameterLengthMismatch))
         } else {
             reader.read_var_int62()
         }

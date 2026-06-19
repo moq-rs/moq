@@ -1,4 +1,4 @@
-use crate::webtransport;
+use crate::types::*;
 
 /// Priority that can be assigned to a track or individual streams associated
 /// with the track by either the publisher or the subscriber.
@@ -55,7 +55,7 @@ pub fn send_order_for_stream(
     mut group_id: u64,
     subgroup_id: Option<u64>,
     delivery_order: MoqtDeliveryOrder,
-) -> webtransport::SendOrder {
+) -> SendOrder {
     if let Some(subgroup_id) = subgroup_id {
         return send_order_for_stream_with_subgroup_id(
             subscriber_priority,
@@ -81,7 +81,7 @@ fn send_order_for_stream_with_subgroup_id(
     mut group_id: u64,
     mut subgroup_id: u64,
     delivery_order: MoqtDeliveryOrder,
-) -> webtransport::SendOrder {
+) -> SendOrder {
     let track_bits: i64 = ((flip(8, subscriber_priority as u64) << 54)
         | (flip(8, publisher_priority as u64) << 46)) as i64;
     group_id = only_lowest_nbits(26, group_id);
@@ -95,11 +95,10 @@ fn send_order_for_stream_with_subgroup_id(
 
 /// Returns |send_order| updated with the new |subscriber_priority|.
 pub fn update_send_order_for_subscriber_priority(
-    send_order: webtransport::SendOrder,
+    send_order: SendOrder,
     subscriber_priority: MoqtPriority,
-) -> webtransport::SendOrder {
-    let mut new_send_order: webtransport::SendOrder =
-        only_lowest_nbits(54, send_order as u64) as i64;
+) -> SendOrder {
+    let mut new_send_order: SendOrder = only_lowest_nbits(54, send_order as u64) as i64;
     let sub_bits: i64 = (flip(8, subscriber_priority as u64) as i64) << 54;
     new_send_order |= sub_bits;
     new_send_order
@@ -107,8 +106,8 @@ pub fn update_send_order_for_subscriber_priority(
 
 /// WebTransport send order set on the MoQT control stream.
 #[allow(non_upper_case_globals)]
-pub const kMoqtControlStreamSendOrder: webtransport::SendOrder = i64::MAX;
+pub const kMoqtControlStreamSendOrder: SendOrder = i64::MAX;
 
 /// WebTransport send order set on MoQT bandwidth probe streams.
 #[allow(non_upper_case_globals)]
-pub const kMoqtProbeStreamSendOrder: webtransport::SendOrder = i64::MIN;
+pub const kMoqtProbeStreamSendOrder: SendOrder = i64::MIN;

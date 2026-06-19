@@ -1,5 +1,5 @@
 use crate::moqt_priority::{MoqtDeliveryOrder, MoqtPriority};
-use crate::quic_types;
+use crate::types;
 use log::error;
 use std::cmp::Ordering;
 use std::fmt;
@@ -27,7 +27,7 @@ pub struct MoqtSessionParameters {
     // TODO: support multiple versions.
     // TODO: support roles other than PubSub.
     version: MoqtVersion,
-    perspective: quic_types::Perspective,
+    perspective: types::Perspective,
     using_webtrans: bool,
     path: Option<String>,
     max_subscribe_id: u64,
@@ -36,7 +36,7 @@ pub struct MoqtSessionParameters {
 }
 
 impl MoqtSessionParameters {
-    pub fn new(perspective: quic_types::Perspective, path: Option<String>) -> Self {
+    pub fn new(perspective: types::Perspective, path: Option<String>) -> Self {
         Self {
             version: kDefaultMoqtVersion,
             perspective,
