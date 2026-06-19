@@ -1,6 +1,17 @@
 [workspace]
-members = [ "moqp", "moqr", "moqs",
-    "moqt",
+members = [
+    "reserved/moqa", # Agent
+    "reserved/moqb", # Broker
+    "reserved/moqc", # Client
+    "reserved/moqd", # Delegator
+    "reserved/moql", # LOC
+    "reserved/moqm", # Media
+    "reserved/moqn", # Network
+    "reserved/moqw", # WebAssembly
+    "moqp", # Publish
+    "moqr", # Relay
+    "moqs", # Subscribe
+    "moqt", "reserved/moqf", # Transport
 ]
 resolver = "2"
 

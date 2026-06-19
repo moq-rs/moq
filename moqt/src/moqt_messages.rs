@@ -86,7 +86,7 @@ impl MoqtDataStreamType {
         match *self {
             MoqtDataStreamType::kObjectDatagram => return MoqtForwardingPreference::kDatagram,
             MoqtDataStreamType::kStreamHeaderSubgroup => {
-                return MoqtForwardingPreference::kSubgroup
+                return MoqtForwardingPreference::kSubgroup;
             }
             MoqtDataStreamType::kStreamHeaderFetch => {
                 error!("Forwarding preference for fetch is not supported");
@@ -676,13 +676,12 @@ pub fn get_filter_type(message: &MoqtSubscribe) -> MoqtFilterType {
                 Ordering::Equal => {
                     if let (Some(start_object), Some(end_object)) =
                         (message.start_object, message.end_object)
+                        && end_object <= start_object
                     {
-                        if end_object <= start_object {
-                            match end_object.cmp(&start_object) {
-                                Ordering::Less => return MoqtFilterType::kNone,
-                                Ordering::Equal => return MoqtFilterType::kAbsoluteStart,
-                                _ => {}
-                            }
+                        match end_object.cmp(&start_object) {
+                            Ordering::Less => return MoqtFilterType::kNone,
+                            Ordering::Equal => return MoqtFilterType::kAbsoluteStart,
+                            _ => {}
                         }
                     }
                 }

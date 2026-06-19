@@ -2,7 +2,7 @@
 name = "moqt"
 version = "0.0.1"
 authors = ["yngrtc <y@ngr.tc>"]
-edition = "2021"
+edition = "2024"
 description = "Media over QUIC - Transport"
 license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/moqt"

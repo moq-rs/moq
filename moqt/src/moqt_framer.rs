@@ -466,13 +466,13 @@ impl MoqtFramer {
                 1,
             ));
         }
-        if !self.using_webtrans {
-            if let Some(path) = &message.path {
-                string_parameters.push(StringParameter::new(
-                    MoqtSetupParameter::kPath as u64,
-                    path.to_string(),
-                ));
-            }
+        if !self.using_webtrans
+            && let Some(path) = &message.path
+        {
+            string_parameters.push(StringParameter::new(
+                MoqtSetupParameter::kPath as u64,
+                path.to_string(),
+            ));
         }
         serialize_control_message!(
             MoqtMessageType::kClientSetup,
@@ -546,7 +546,10 @@ impl MoqtFramer {
                         WireSubscribeParameterList(&message.parameters)
                     )
                 } else {
-                    Err(Error::new(ErrorKind::InvalidInput, "Subscribe framing error due to empty start group/object in MoqtFilterType::kAbsoluteStart"))
+                    Err(Error::new(
+                        ErrorKind::InvalidInput,
+                        "Subscribe framing error due to empty start group/object in MoqtFilterType::kAbsoluteStart",
+                    ))
                 }
             }
             MoqtFilterType::kAbsoluteRange => {
@@ -572,7 +575,10 @@ impl MoqtFramer {
                         WireSubscribeParameterList(&message.parameters)
                     )
                 } else {
-                    Err(Error::new(ErrorKind::InvalidInput, "Subscribe framing error due to empty start group/object or end group in MoqtFilterType::kAbsoluteRange"))
+                    Err(Error::new(
+                        ErrorKind::InvalidInput,
+                        "Subscribe framing error due to empty start group/object or end group in MoqtFilterType::kAbsoluteRange",
+                    ))
                 }
             }
             _ => Err(Error::new(

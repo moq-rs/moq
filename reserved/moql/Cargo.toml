@@ -1,11 +1,11 @@
 [package]
-name = "moqr"
+name = "moql"
 version = "0.0.0"
 authors = ["yngrtc <y@ngr.tc>"]
 edition = "2024"
-description = "Media over QUIC - Relay"
+description = "Media over QUIC - LOC"
 license = "MIT OR Apache-2.0"
-documentation = "https://docs.rs/moqr"
+documentation = "https://docs.rs/moql"
 homepage = "https://moq.rs"
 repository = "https://github.com/moq-rs/moq"
 

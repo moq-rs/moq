@@ -1,6 +1,6 @@
 use crate::moqt_priority::{
-    kMoqtControlStreamSendOrder, send_order_for_stream, update_send_order_for_subscriber_priority,
-    MoqtDeliveryOrder,
+    MoqtDeliveryOrder, kMoqtControlStreamSendOrder, send_order_for_stream,
+    update_send_order_for_subscriber_priority,
 };
 
 #[test]

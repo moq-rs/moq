@@ -1,4 +1,4 @@
-use crate::moqt_messages::{kMaxMessageHeaderSize, MoqtMessageType};
+use crate::moqt_messages::{MoqtMessageType, kMaxMessageHeaderSize};
 use crate::serde::data_reader::DataReader;
 use crate::serde::data_writer::DataWriter;
 use bytes::BytesMut;
