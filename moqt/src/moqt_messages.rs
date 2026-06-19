@@ -1,59 +1,10 @@
 use crate::moqt_priority::{MoqtDeliveryOrder, MoqtPriority};
-use crate::moqt_types;
 use log::error;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
 use thiserror::Error;
-
-/*TODO: inline constexpr quic::ParsedQuicVersionVector GetMoqtSupportedQuicVersions() {
-   return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::RFCv1()}
-}
-*/
-
-pub type MoqtVersion = u64;
-
-#[allow(non_upper_case_globals)]
-pub const kDraft07Version: MoqtVersion = 0xff000007;
-#[allow(non_upper_case_globals)]
-pub const kUnrecognizedVersionForTests: MoqtVersion = 0xfe0000ff;
-#[allow(non_upper_case_globals)]
-pub const kDefaultMoqtVersion: MoqtVersion = kDraft07Version;
-#[allow(non_upper_case_globals)]
-pub const kDefaultInitialMaxSubscribeId: u64 = 100;
-
-pub struct MoqtSessionParameters {
-    // TODO: support multiple versions.
-    // TODO: support roles other than PubSub.
-    version: MoqtVersion,
-    perspective: moqt_types::Perspective,
-    using_webtrans: bool,
-    path: Option<String>,
-    max_subscribe_id: u64,
-    deliver_partial_objects: bool,
-    support_object_acks: bool,
-}
-
-impl MoqtSessionParameters {
-    pub fn new(perspective: moqt_types::Perspective, path: Option<String>) -> Self {
-        Self {
-            version: kDefaultMoqtVersion,
-            perspective,
-            using_webtrans: path.is_none(),
-            path,
-            max_subscribe_id: kDefaultInitialMaxSubscribeId,
-            deliver_partial_objects: false,
-            support_object_acks: false,
-        }
-    }
-}
-
-/// The maximum length of a message, excluding any OBJECT payload. This prevents
-/// DoS attack via forcing the parser to buffer a large message (OBJECT payloads
-/// are not buffered by the parser).
-#[allow(non_upper_case_globals)]
-pub const kMaxMessageHeaderSize: usize = 2048;
 
 #[allow(non_camel_case_types)]
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, PartialOrd)]
@@ -511,7 +462,7 @@ impl Default for SubgroupPriority {
 
 #[derive(Default, Clone, PartialEq, Debug, PartialOrd)]
 pub struct MoqtClientSetup {
-    pub(crate) supported_versions: Vec<MoqtVersion>,
+    pub(crate) supported_versions: Vec<String>,
     pub(crate) role: Option<MoqtRole>,
     pub(crate) path: Option<String>,
     pub(crate) max_subscribe_id: Option<u64>,
@@ -520,7 +471,7 @@ pub struct MoqtClientSetup {
 
 #[derive(Default, Clone, PartialEq, Debug, PartialOrd)]
 pub struct MoqtServerSetup {
-    pub(crate) selected_version: MoqtVersion,
+    pub(crate) selected_version: String,
     pub(crate) role: Option<MoqtRole>,
     pub(crate) max_subscribe_id: Option<u64>,
     pub(crate) supports_object_ack: bool,
