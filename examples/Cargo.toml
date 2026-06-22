@@ -1,0 +1,38 @@
+[package]
+name = "moq-examples"
+description = "Examples of MOQ"
+documentation = "https://docs.rs/moq-examples"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+moqp.workspace = true
+moqr.workspace = true
+moqs.workspace = true
+moqt.workspace = true
+
+sansio.workspace = true
+tokio.workspace = true
+env_logger.workspace = true
+clap.workspace = true
+chrono.workspace = true
+log.workspace = true
+serde.workspace = true
+bytes.workspace = true
+rand.workspace = true
+ctrlc.workspace = true
+
+anyhow = "1.0.100"
+
+[[example]]
+name = "chat_client"
+path = "examples/chat/client.rs"
+bench = false

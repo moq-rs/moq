@@ -1,12 +1,12 @@
 [package]
 name = "moqs"
-version = "0.0.0"
-authors = ["Rain Liu <y@liu.mx>"]
-edition = "2024"
-description = "Media over QUIC - Subscribe"
-license = "MIT OR Apache-2.0"
+description = "Media over QUIC - Subscriber"
 documentation = "https://docs.rs/moqs"
-homepage = "https://moq.rs"
-repository = "https://github.com/moq-rs/moq"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [dependencies]

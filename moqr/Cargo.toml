@@ -1,12 +1,12 @@
 [package]
 name = "moqr"
-version = "0.0.0"
-authors = ["Rain Liu <y@liu.mx>"]
-edition = "2024"
 description = "Media over QUIC - Relay"
-license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/moqr"
-homepage = "https://moq.rs"
-repository = "https://github.com/moq-rs/moq"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [dependencies]

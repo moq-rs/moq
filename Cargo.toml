@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "examples", # Examples
     "moqp", # Publish
     "moqr", # Relay
     "moqs", # Subscribe
@@ -32,6 +33,10 @@ keywords = ["sansio", "networking", "protocols"]
 categories = ["network-programming"]
 
 [workspace.dependencies]
+moqp = { version = "0.0.1", path = "moqp" }
+moqr = { version = "0.0.1", path = "moqr" }
+moqs = { version = "0.0.1", path = "moqs" }
+moqt = { version = "0.0.1", path = "moqt" }
 
 # common dependencies
 sansio = "1.0.1"
